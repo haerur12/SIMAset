@@ -1,4 +1,7 @@
 <?php
+error_reporting(E_ALL);
+ini_set('display_errors', 1);
+
 require 'config.php';
 
 if(!isset($_SESSION['login'])) {
@@ -206,7 +209,7 @@ $stat_perbaikan = mysqli_query($conn, "SELECT COUNT(*) as total FROM inventaris 
                                 <tr>
                                     <td><?= $no++ ?></td>
                                     <td><?= $row['nama_barang_108'] ?></td>
-                                    <td><?= $row['nama_ruangan'] ?? '-' ?></td>
+                                   <td>-</td>
                                     <td><span class="badge <?= $badgeClass ?>"><?= $row['kondisi_aset'] ?></span></td>
                                     <td><?= formatTanggal($last_update['tanggal_cek'] ?? $row['created_at']) ?></td>
                                     <td><?= substr($last_update['keterangan'] ?? '-', 0, 50) ?>...</td>
