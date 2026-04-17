@@ -282,13 +282,14 @@ $total_pages = ceil($total_records / $limit);
                 <h5>Inventaris Sekolah</h5>
                 <small>SDN Curug 01</small>
             </div>
-            <div class="sidebar-menu">
-                <a href="dashboard.php" class="active"><i class="fas fa-home"></i> Dashboard</a>
-                <a href="ruangan.php"><i class="fas fa-door-open"></i> Manajemen Ruangan</a>
-                <a href="tambah.php"><i class="fas fa-plus-circle"></i> Tambah Aset</a>
-                <a href="export_excel.php"><i class="fas fa-file-excel"></i> Export Excel</a>
-                <a href="logout.php"><i class="fas fa-sign-out-alt"></i> Logout</a>
-            </div>
+           <div class="sidebar-menu">
+           <a href="dashboard.php"><i class="fas fa-home"></i> Dashboard</a>
+           <a href="ruangan.php"><i class="fas fa-door-open"></i> Manajemen Ruangan</a>
+           <a href="tambah.php"><i class="fas fa-plus-circle"></i> Tambah Aset</a>
+           <a href="kondisi_aset.php" class="active"><i class="fas fa-tools"></i> Kondisi Aset</a>  <!-- TAMBAH INI -->
+           <a href="export_excel.php"><i class="fas fa-file-excel"></i> Export Excel</a>
+           <a href="logout.php"><i class="fas fa-sign-out-alt"></i> Logout</a>
+        </div>
         </div>
 
         <!-- Main Content -->
