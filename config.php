@@ -6,7 +6,7 @@ $user = "root";
 $pass = "123";
 $db   = "db_inventaris_sekolah";
 
-$conn = mysqli_connect($host, $user, $pass, $db);
+$conn = mysqli_connect("localhost", "root", "", "db_inventaris_sekolah");
 
 if (!$conn) {
     die("Koneksi gagal: " . mysqli_connect_error());

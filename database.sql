@@ -1,5 +1,4 @@
-CREATE DATABASE db_inventaris_sekolah;
-USE db_inventaris_sekolah;
+
 
 -- Tabel Users
 CREATE TABLE users (
