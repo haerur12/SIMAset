@@ -60,13 +60,24 @@ if(isset($_POST['login'])) {
             color: #1e3c72;
             margin-bottom: 15px;
         }
-        .school-info {
-            background: #f8f9fa;
-            padding: 15px;
-            border-radius: 10px;
-            margin-bottom: 20px;
-            text-align: center;
-        }
+        .school-logo{
+
+            width:100px;
+            height:100px;
+
+            object-fit:contain;
+
+            margin-bottom:15px;
+
+            transition:.3s;
+
+            }
+
+        .school-logo:hover{
+
+            transform:scale(1.08);
+
+            }
         .btn-login {
             background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
             border: none;
@@ -83,7 +94,7 @@ if(isset($_POST['login'])) {
 <body>
     <div class="login-box">
         <div class="login-header">
-            <i class="fas fa-school"></i>
+             <img src="assets/img/logo.png" class="school-logo">
             <h3>Sistem Inventaris Sekolah</h3>
             <p class="text-muted">SDN Curug 01 Bojongsari</p>
         </div>

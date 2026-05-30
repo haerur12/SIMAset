@@ -1,6 +1,8 @@
 <?php
 require 'config.php';
 
+$current_page = basename($_SERVER['PHP_SELF']);
+
 if(!isset($_SESSION['login'])) {
     header("Location: index.php");
     exit;
@@ -84,6 +86,33 @@ $total_kapasitas = mysqli_query($conn, "SELECT SUM(kapasitas) as total FROM ruan
             padding: 30px 20px;
             text-align: center;
             border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .sidebar-logo {
+            width: 120px;
+            height: 120px;
+            display: block;
+            margin: 0 auto 15px auto;
+            object-fit: contain;
+            border-radius: 50%;
+            padding: 5px;
+            transition: 0.3s;
+        }
+
+        .sidebar-logo:hover {
+            transform: scale(1.08);
+        }
+
+        .sidebar-brand h4 {
+            margin-top: 10px;
+            font-size: 24px;
+            font-weight: 600;
+            color: var(--white);
+        }
+
+        .sidebar-brand h6 {
+            color: #cbd5e1;
+            margin-bottom: 0;
         }
 
         .sidebar-brand i {
@@ -368,20 +397,7 @@ $total_kapasitas = mysqli_query($conn, "SELECT SUM(kapasitas) as total FROM ruan
 <div class="container-fluid">
     <div class="row">
         <!-- Sidebar -->
-        <div class="col-md-2 sidebar">
-            <div class="sidebar-brand">
-                <i class="fas fa-school"></i>
-                <h5>Inventaris Sekolah</h5>
-                <small>SDN Curug 01</small>
-            </div>
-            <div class="sidebar-menu">
-                <a href="dashboard.php"><i class="fas fa-home"></i> Dashboard</a>
-                <a href="ruangan.php" class="active"><i class="fas fa-door-open"></i> Manajemen Ruangan</a>
-                <a href="tambah.php"><i class="fas fa-plus-circle"></i> Tambah Aset</a>
-                <a href="export_excel.php"><i class="fas fa-file-excel"></i> Export Excel</a>
-                <a href="logout.php"><i class="fas fa-sign-out-alt"></i> Logout</a>
-            </div>
-        </div>
+        <?php include 'sidebar.php'; ?>
 
         <!-- Main Content -->
         <div class="col-md-10 main-content">

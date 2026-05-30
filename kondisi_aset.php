@@ -4,6 +4,8 @@ ini_set('display_errors', 1);
 
 require 'config.php';
 
+$current_page = basename($_SERVER['PHP_SELF']);
+
 if(!isset($_SESSION['login'])) {
     header("Location: index.php");
     exit;
@@ -11,24 +13,15 @@ if(!isset($_SESSION['login'])) {
 
 // Update kondisi
 if(isset($_POST['update_kondisi'])) {
-    $inventaris_id = $_POST['inventaris_id'];
-    $kondisi = $_POST['kondisi'];
-    $keterangan = $_POST['keterangan'];
-    $petugas = $_SESSION['nama_lengkap'];
+    $inventaris_id = intval($_POST['inventaris_id']);
+    $kondisi = mysqli_real_escape_string($conn, $_POST['kondisi']);
+    $keterangan = mysqli_real_escape_string($conn, $_POST['keterangan']);
+    $petugas = mysqli_real_escape_string($conn, $_SESSION['nama_lengkap']);
     $tanggal_cek = date('Y-m-d');
-    
-    // Update kondisi di tabel inventaris
-    mysqli_query($conn, "UPDATE inventaris SET kondisi_aset = '$kondisi' WHERE id = $inventaris_id");
-    
-    // Insert ke history kondisi
-    mysqli_query($conn, "INSERT INTO kondisi_aset SET
-        inventaris_id = '$inventaris_id',
-        kondisi = '$kondisi',
-        tanggal_cek = '$tanggal_cek',
-        keterangan = '$keterangan',
-        petugas = '$petugas'
-    ");
-    
+
+    // Insert ke history kondisi aset
+    mysqli_query($conn, "INSERT INTO kondisi_aset (inventaris_id, kondisi, tanggal_cek, keterangan, petugas) VALUES ($inventaris_id, '$kondisi', '$tanggal_cek', '$keterangan', '$petugas')");
+
     echo "<script>alert('Kondisi aset berhasil diupdate!'); window.location='kondisi_aset.php';</script>";
 }
 
@@ -36,7 +29,7 @@ if(isset($_POST['update_kondisi'])) {
 $filter = isset($_GET['filter']) ? $_GET['filter'] : 'all';
 $where = "";
 if($filter != 'all') {
-    $where = "WHERE i.kondisi_aset = '$filter'";
+    $where = "WHERE ks.kondisi = '$filter'";
 }
 
 // Search
@@ -49,18 +42,63 @@ if($search) {
     }
 }
 
-$query = "SELECT i.*, r.nama_ruangan 
-          FROM inventaris i 
-          LEFT JOIN ruangan r ON i.ruangan_id = r.id 
-          $where 
+$query = "SELECT i.*, r.nama_ruangan, ks.kondisi AS kondisi_aset, ks.tanggal_cek AS last_tanggal_cek, ks.keterangan AS last_keterangan
+          FROM inventaris i
+          LEFT JOIN ruangan r ON i.ruangan_id = r.id
+          LEFT JOIN (
+              SELECT k1.inventaris_id, k1.kondisi, k1.tanggal_cek, k1.keterangan
+              FROM kondisi_aset k1
+              INNER JOIN (
+                  SELECT inventaris_id, MAX(created_at) AS max_created_at
+                  FROM kondisi_aset
+                  GROUP BY inventaris_id
+              ) k2 ON k1.inventaris_id = k2.inventaris_id AND k1.created_at = k2.max_created_at
+          ) ks ON ks.inventaris_id = i.id
+          $where
           ORDER BY i.created_at DESC";
 $result = mysqli_query($conn, $query);
 
 // Statistik kondisi
-$stat_baik = mysqli_query($conn, "SELECT COUNT(*) as total FROM inventaris WHERE kondisi_aset = 'Baik'")->fetch_assoc()['total'];
-$stat_rusak_ringan = mysqli_query($conn, "SELECT COUNT(*) as total FROM inventaris WHERE kondisi_aset = 'Rusak Ringan'")->fetch_assoc()['total'];
-$stat_rusak_berat = mysqli_query($conn, "SELECT COUNT(*) as total FROM inventaris WHERE kondisi_aset = 'Rusak Berat'")->fetch_assoc()['total'];
-$stat_perbaikan = mysqli_query($conn, "SELECT COUNT(*) as total FROM inventaris WHERE kondisi_aset = 'Dalam Perbaikan'")->fetch_assoc()['total'];
+$stat_baik = mysqli_query($conn, "SELECT COUNT(*) as total FROM (
+    SELECT k1.inventaris_id
+    FROM kondisi_aset k1
+    INNER JOIN (
+        SELECT inventaris_id, MAX(created_at) AS max_created_at
+        FROM kondisi_aset
+        GROUP BY inventaris_id
+    ) k2 ON k1.inventaris_id = k2.inventaris_id AND k1.created_at = k2.max_created_at
+    WHERE k1.kondisi = 'Baik'
+) AS latest")->fetch_assoc()['total'];
+$stat_rusak_ringan = mysqli_query($conn, "SELECT COUNT(*) as total FROM (
+    SELECT k1.inventaris_id
+    FROM kondisi_aset k1
+    INNER JOIN (
+        SELECT inventaris_id, MAX(created_at) AS max_created_at
+        FROM kondisi_aset
+        GROUP BY inventaris_id
+    ) k2 ON k1.inventaris_id = k2.inventaris_id AND k1.created_at = k2.max_created_at
+    WHERE k1.kondisi = 'Rusak Ringan'
+) AS latest")->fetch_assoc()['total'];
+$stat_rusak_berat = mysqli_query($conn, "SELECT COUNT(*) as total FROM (
+    SELECT k1.inventaris_id
+    FROM kondisi_aset k1
+    INNER JOIN (
+        SELECT inventaris_id, MAX(created_at) AS max_created_at
+        FROM kondisi_aset
+        GROUP BY inventaris_id
+    ) k2 ON k1.inventaris_id = k2.inventaris_id AND k1.created_at = k2.max_created_at
+    WHERE k1.kondisi = 'Rusak Berat'
+) AS latest")->fetch_assoc()['total'];
+$stat_perbaikan = mysqli_query($conn, "SELECT COUNT(*) as total FROM (
+    SELECT k1.inventaris_id
+    FROM kondisi_aset k1
+    INNER JOIN (
+        SELECT inventaris_id, MAX(created_at) AS max_created_at
+        FROM kondisi_aset
+        GROUP BY inventaris_id
+    ) k2 ON k1.inventaris_id = k2.inventaris_id AND k1.created_at = k2.max_created_at
+    WHERE k1.kondisi = 'Dalam Perbaikan'
+) AS latest")->fetch_assoc()['total'];
 ?>
 <!DOCTYPE html>
 <html lang="id">
@@ -114,20 +152,31 @@ $stat_perbaikan = mysqli_query($conn, "SELECT COUNT(*) as total FROM inventaris 
             border-bottom: 1px solid rgba(255, 255, 255, 0.1);
         }
 
-        .sidebar-brand i {
-            font-size: 40px;
-            margin-bottom: 10px;
+        .sidebar-logo {
+            width: 120px;
+            height: 120px;
+            display: block;
+            margin: 0 auto 15px auto;
+            object-fit: contain;
+            border-radius: 50%;
+            padding: 5px;
+            transition: 0.3s;
         }
 
-        .sidebar-brand h5 {
+        .sidebar-logo:hover {
+            transform: scale(1.08);
+        }
+
+        .sidebar-brand h4 {
+            margin-top: 10px;
+            font-size: 24px;
             font-weight: 600;
-            font-size: 16px;
-            margin-bottom: 5px;
+            color: var(--white);
         }
 
-        .sidebar-brand small {
-            font-size: 12px;
-            opacity: 0.7;
+        .sidebar-brand h6 {
+            color: #cbd5e1;
+            margin-bottom: 0;
         }
 
         .sidebar-menu {
@@ -420,21 +469,7 @@ $stat_perbaikan = mysqli_query($conn, "SELECT COUNT(*) as total FROM inventaris 
 <div class="container-fluid">
     <div class="row">
         <!-- Sidebar -->
-        <div class="col-md-2 sidebar">
-            <div class="sidebar-brand">
-                <i class="fas fa-school"></i>
-                <h5>Inventaris Sekolah</h5>
-                <small>SDN Curug 01</small>
-            </div>
-            <div class="sidebar-menu">
-                <a href="dashboard.php"><i class="fas fa-home"></i> Dashboard</a>
-                <a href="ruangan.php"><i class="fas fa-door-open"></i> Manajemen Ruangan</a>
-                <a href="tambah.php"><i class="fas fa-plus-circle"></i> Tambah Aset</a>
-                <a href="kondisi_aset.php" class="active"><i class="fas fa-tools"></i> Kondisi Aset</a>
-                <a href="export_excel.php"><i class="fas fa-file-excel"></i> Export Excel</a>
-                <a href="logout.php"><i class="fas fa-sign-out-alt"></i> Logout</a>
-            </div>
-        </div>
+        <?php include 'sidebar.php'; ?>
 
         <!-- Main Content -->
         <div class="col-md-10 main-content">
@@ -529,20 +564,28 @@ $stat_perbaikan = mysqli_query($conn, "SELECT COUNT(*) as total FROM inventaris 
                                 <?php 
                                 $no = 1;
                                 while($row = mysqli_fetch_assoc($result)): 
-                                    $badgeClass = $row['kondisi_aset'] == 'Baik' ? 'badge-success' : 
-                                                 ($row['kondisi_aset'] == 'Rusak Ringan' ? 'badge-warning' : 
-                                                 ($row['kondisi_aset'] == 'Dalam Perbaikan' ? 'badge-info' : 'badge-danger'));
-                                    
-                                    // Get last kondisi update
-                                    $last_update = mysqli_query($conn, "SELECT * FROM kondisi_aset WHERE inventaris_id = {$row['id']} ORDER BY created_at DESC LIMIT 1")->fetch_assoc();
+                                    $currentCondition = $row['kondisi_aset'] ?? '-';
+                                    if ($currentCondition == 'Baik') {
+                                        $badgeClass = 'badge-success';
+                                    } elseif ($currentCondition == 'Rusak Ringan') {
+                                        $badgeClass = 'badge-warning';
+                                    } elseif ($currentCondition == 'Dalam Perbaikan') {
+                                        $badgeClass = 'badge-info';
+                                    } elseif ($currentCondition == 'Rusak Berat') {
+                                        $badgeClass = 'badge-danger';
+                                    } elseif ($currentCondition == 'Tidak Layak Pakai') {
+                                        $badgeClass = 'badge-danger';
+                                    } else {
+                                        $badgeClass = 'badge-primary';
+                                    }
                                 ?>
                                 <tr>
                                     <td><?= $no++ ?></td>
                                     <td><strong><?= $row['nama_barang_108'] ?></strong></td>
                                     <td><?= $row['nama_ruangan'] ?? '-' ?></td>
-                                    <td><span class="badge <?= $badgeClass ?>"><?= $row['kondisi_aset'] ?></span></td>
-                                    <td><?= formatTanggal($last_update['tanggal_cek'] ?? $row['created_at']) ?></td>
-                                    <td><?= substr($last_update['keterangan'] ?? '-', 0, 50) ?>...</td>
+                                    <td><span class="badge <?= $badgeClass ?>"><?= $currentCondition ?></span></td>
+                                    <td><?= formatTanggal($row['last_tanggal_cek'] ?? $row['created_at']) ?></td>
+                                    <td><?= substr($row['last_keterangan'] ?? '-', 0, 50) ?>...</td>
                                     <td>
                                         <button class="btn btn-sm btn-warning" data-bs-toggle="modal" data-bs-target="#modalKondisi<?= $row['id'] ?>">
                                             <i class="fas fa-edit"></i> Update

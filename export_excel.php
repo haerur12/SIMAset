@@ -1,111 +1,469 @@
-<?php
+﻿<?php
 require 'config.php';
+
+$current_page = basename($_SERVER['PHP_SELF']);
+$download = isset($_GET['download']) && $_GET['download'] == '1';
 
 if(!isset($_SESSION['login'])) {
     header("Location: index.php");
     exit;
 }
 
-header("Content-type: application/vnd-ms-excel");
-header("Content-Disposition: attachment; filename=Inventaris_SDN_Curug1_" . date('Y-m-d') . ".xls");
+// Statistik untuk Preview
+$total_aset = mysqli_query($conn, "SELECT COUNT(*) as total FROM inventaris")->fetch_assoc()['total'];
+$total_pemerintah = mysqli_query($conn, "SELECT COUNT(*) as total FROM inventaris WHERE sumber_pengadaan = 'Pemerintah'")->fetch_assoc()['total'];
+$total_sekolah = mysqli_query($conn, "SELECT COUNT(*) as total FROM inventaris WHERE sumber_pengadaan = 'Sekolah'")->fetch_assoc()['total'];
+$total_nilai = mysqli_query($conn, "SELECT SUM(total) as total FROM inventaris")->fetch_assoc()['total'];
 
-$result = mysqli_query($conn, "SELECT * FROM inventaris ORDER BY created_at DESC");
+// Search untuk Preview
+$search = isset($_GET['search']) ? $_GET['search'] : '';
+$where = "";
+if($search && !$download) {
+    $where = "WHERE spesifikasi_nama_barang LIKE '%$search%' OR nama_barang_108 LIKE '%$search%'";
+}
+
+// Query Data
+$result = mysqli_query($conn, "SELECT * FROM inventaris $where ORDER BY created_at DESC");
+
+// Header Excel jika download
+if($download) {
+    header("Content-type: application/vnd-ms-excel");
+    header("Content-Disposition: attachment; filename=Inventaris_SDN_Curug1_" . date('Y-m-d') . ".xls");
+}
 ?>
 <!DOCTYPE html>
-<html>
+<html lang="id">
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title><?= $download ? 'Export Excel' : 'Preview Export - Inventaris Sekolah' ?></title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
     <style>
-        @page { margin: 0.5cm; size: landscape; }
-        table { border-collapse: collapse; width: 100%; font-size: 9px; }
-        th, td { border: 1px solid black; padding: 4px; text-align: left; vertical-align: top; }
-        th { background-color: #1a365d; color: white; font-weight: bold; white-space: nowrap; }
-        .text-center { text-align: center; }
-        .text-right { text-align: right; }
-        .wrap { white-space: normal; word-wrap: break-word; max-width: 150px; }
+        /* ========================================
+           COLOR PALETTE - Professional & Classy
+           ======================================== */
+        :root {
+            --primary: #1a365d;       /* Navy Blue - Utama */
+            --primary-dark: #0f2744;  /* Navy Dark - Hover */
+            --white: #ffffff;         /* White - Background */
+            --gray-light: #f7fafc;    /* Light Gray - Body */
+            --gray-medium: #e2e8f0;   /* Medium Gray - Border */
+            --gray-dark: #4a5568;     /* Dark Gray - Text */
+        }
+
+        body { 
+            background-color: var(--gray-light);
+            color: var(--gray-dark);
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            line-height: 1.6;
+        }
+
+        /* Sidebar */
+        .sidebar {
+            background-color: var(--primary);
+            min-height: 100vh;
+            color: var(--white);
+            padding: 0;
+        }
+
+        .sidebar-brand {
+            padding: 30px 20px;
+            text-align: center;
+            border-bottom: 1px solid rgba(255,255,255,0.1);
+        }
+
+        .sidebar-logo {
+            width: 120px;
+            height: 120px;
+            display: block;
+            margin: 0 auto 15px auto;
+            object-fit: contain;
+            border-radius: 50%;
+            padding: 5px;
+            transition: 0.3s;
+        }
+
+        .sidebar-logo:hover { transform: scale(1.08); }
+        .sidebar-brand h4 { margin: 0; font-weight: 600; font-size: 18px; }
+        .sidebar-brand h6 { margin: 4px 0 0 0; font-size: 13px; opacity: 0.85; font-weight: 400; }
+
+        .sidebar-menu { padding: 20px 10px; }
+
+        .sidebar-menu a {
+            color: rgba(255, 255, 255, 0.8);
+            text-decoration: none;
+            padding: 14px 20px;
+            display: block;
+            margin-bottom: 5px;
+            border-radius: 6px;
+            transition: all 0.3s;
+            font-size: 14px;
+        }
+
+        .sidebar-menu a:hover {
+            background-color: rgba(255, 255, 255, 0.1);
+            color: var(--white);
+            padding-left: 25px;
+        }
+
+        .sidebar-menu a.active {
+            background-color: var(--white);
+            color: var(--primary);
+            font-weight: 600;
+        }
+
+        .sidebar-menu a i { margin-right: 12px; width: 20px; text-align: center; }
+
+        /* Main Content */
+        .main-content {
+            background-color: var(--gray-light);
+            padding: 30px;
+        }
+
+        .page-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 30px;
+            padding-bottom: 20px;
+            border-bottom: 2px solid var(--gray-medium);
+            flex-wrap: wrap;
+            gap: 12px;
+        }
+
+        .page-header h2 {
+            color: var(--primary);
+            font-weight: 600;
+            font-size: 24px;
+            margin: 0;
+        }
+
+        .page-header h2 i { margin-right: 10px; }
+        .page-header > span { color: var(--gray-dark); font-size: 14px; }
+
+        /* Cards */
+        .card {
+            background-color: var(--white);
+            border: 1px solid var(--gray-medium);
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+            margin-bottom: 20px;
+        }
+
+        .card-header {
+            background-color: var(--white);
+            border-bottom: 2px solid var(--primary);
+            padding: 15px 20px;
+            font-weight: 600;
+            color: var(--primary);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .card-body { padding: 20px; }
+
+        /* Stat Cards */
+        .stat-card {
+            background-color: var(--white);
+            border-radius: 8px;
+            padding: 25px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+            border-left: 4px solid var(--primary);
+            transition: all 0.3s;
+            margin-bottom: 20px;
+        }
+
+        .stat-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 8px 20px rgba(0, 0, 0, 0.1);
+        }
+
+        .stat-card h6 {
+            color: var(--gray-dark);
+            font-size: 13px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 10px;
+        }
+
+        .stat-card h3 {
+            color: var(--primary);
+            font-weight: 700;
+            font-size: 32px;
+            margin-bottom: 0;
+        }
+
+        /* Tables */
+        .table {
+            background-color: var(--white);
+            margin-bottom: 0;
+        }
+
+        .table thead th {
+            background-color: var(--primary);
+            color: var(--white);
+            border: none;
+            padding: 12px;
+            font-weight: 500;
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 0.4px;
+            white-space: nowrap;
+        }
+
+        .table tbody td {
+            padding: 12px;
+            vertical-align: middle;
+            border-color: var(--gray-medium);
+            font-size: 13px;
+        }
+
+        .table tbody tr:hover { background-color: var(--gray-light); }
+
+        /* Badges */
+        .badge {
+            padding: 6px 12px;
+            font-weight: 500;
+            font-size: 12px;
+            border-radius: 4px;
+        }
+
+        .badge-pemerintah { background-color: var(--primary); color: var(--white); }
+        .badge-sekolah { background-color: #d69e2e; color: var(--white); }
+        .badge-bos { background-color: #38a169; color: var(--white); }
+
+        /* Buttons */
+        .btn {
+            border-radius: 6px;
+            padding: 10px 20px;
+            font-weight: 500;
+            font-size: 14px;
+            transition: all 0.3s;
+        }
+
+        .btn-sm { padding: 6px 12px; font-size: 13px; }
+
+        .btn-primary {
+            background-color: var(--primary);
+            border-color: var(--primary);
+        }
+
+        .btn-primary:hover {
+            background-color: var(--primary-dark);
+            border-color: var(--primary-dark);
+        }
+
+        .btn-secondary {
+            background-color: var(--gray-dark);
+            border-color: var(--gray-dark);
+            color: var(--white);
+        }
+
+        .btn-secondary:hover {
+            background-color: #2d3748;
+            border-color: #2d3748;
+        }
+
+        /* Forms */
+        .form-control:focus {
+            border-color: var(--primary);
+            box-shadow: 0 0 0 3px rgba(26, 54, 93, 0.1);
+        }
+
+        /* Utilities */
+        .text-primary { color: var(--primary) !important; }
+        .text-right { text-align: right !important; }
+        .text-center { text-align: center !important; }
+        .wrap { white-space: normal; word-wrap: break-word; max-width: 180px; }
+        .shadow-sm { box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05) !important; }
+        
+        /* Excel Preview Header */
+        .excel-header {
+            text-align: center;
+            padding: 20px;
+            background: var(--white);
+            border-bottom: 2px solid var(--primary);
+            margin-bottom: 20px;
+        }
+        .excel-header h3 { margin: 0 0 8px 0; color: var(--primary); }
+        .excel-header p { margin: 0; color: var(--gray-dark); font-size: 14px; }
     </style>
 </head>
 <body>
-    <h3 style="text-align: center; margin: 10px 0;">DATA INVENTARIS SEKOLAH - SDN CURUG 01</h3>
-    <p style="text-align: center; margin: 0 0 15px 0;">Tanggal Export: <?= date('d F Y') ?></p>
-    
-    <table>
-        <thead>
-            <tr>
-                <th class="text-center">No</th>
-                <th>Kode Lokasi</th>
-                <th>Nama Unit</th>
-                <th>Sumber Pengadaan</th>
-                <th>Bentuk Kontrak</th>
-                <th>No Kontrak</th>
-                <th>Tgl Kontrak</th>
-                <th>Pihak ke-3</th>
-                <th>No BAST</th>
-                <th>Tgl BAST</th>
-                <th>Nama PPK</th>
-                <th>Pengurus Barang</th>
-                <th>No Surat Pernyataan</th>
-                <th>Tgl Pernyataan</th>
-                <th>Kode Sub Keg</th>
-                <th>Nama Sub Keg</th>
-                <th>Kode Rekening</th>
-                <th>Nama Rekening</th>
-                <th>Kode Barang</th>
-                <th>Nama Barang</th>
-                <th>Spesifikasi</th>
-                <th>Satuan</th>
-                <th>Jumlah</th>
-                <th>Harga Satuan</th>
-                <th>Total</th>
-                <th>Judul</th>
-                <th>Pencipta</th>
-                <th>Keterangan</th>
-            </tr>
-        </thead>
-        <tbody>
-            <?php 
-            $no = 1;
-            $grand_total = 0;
-            while($row = mysqli_fetch_assoc($result)): 
-                $grand_total += $row['total'];
-            ?>
-            <tr>
-                <td class="text-center"><?= $no++ ?></td>
-                <td><?= $row['kode_lokasi'] ?></td>
-                <td><?= $row['nama_unit_lokasi'] ?></td>
-                <td class="text-center"><?= $row['sumber_pengadaan'] ?></td>
-                <td class="text-center"><?= $row['bentuk_kontrak'] ?></td>
-                <td><?= $row['no_dokumen_kontrak'] ?></td>
-                <td class="text-center"><?= $row['tanggal_kontrak'] ? date('d/m/Y', strtotime($row['tanggal_kontrak'])) : '-' ?></td>
-                <td><?= $row['pihak_ke_3'] ?></td>
-                <td><?= $row['no_bast'] ?></td>
-                <td class="text-center"><?= $row['tanggal_bast'] ? date('d/m/Y', strtotime($row['tanggal_bast'])) : '-' ?></td>
-                <td><?= $row['nama_ppk'] ?></td>
-                <td><?= $row['nama_pengurus_barang'] ?></td>
-                <td><?= $row['no_surat_pernyataan'] ?></td>
-                <td class="text-center"><?= $row['tanggal_pernyataan'] ? date('d/m/Y', strtotime($row['tanggal_pernyataan'])) : '-' ?></td>
-                <td class="text-center"><?= $row['kode_sub_kegiatan'] ?></td>
-                <td class="wrap"><?= $row['nama_sub_kegiatan'] ?></td>
-                <td class="text-center"><?= $row['kode_rekening_belanja'] ?></td>
-                <td class="wrap"><?= $row['nama_rekening_belanja'] ?></td>
-                <td class="text-center"><?= $row['kode_barang_108'] ?></td>
-                <td class="wrap"><strong><?= $row['nama_barang_108'] ?></strong></td>
-                <td class="wrap"><?= $row['spesifikasi_nama_barang'] ?></td>
-                <td class="text-center"><?= $row['satuan'] ?></td>
-                <td class="text-center"><?= $row['jumlah'] ?></td>
-                <td class="text-right">Rp <?= number_format($row['harga_satuan'], 0, ',', '.') ?></td>
-                <td class="text-right"><strong>Rp <?= number_format($row['total'], 0, ',', '.') ?></strong></td>
-                <td class="wrap"><?= $row['judul'] ?></td>
-                <td class="wrap"><?= $row['pencipta'] ?></td>
-                <td class="wrap"><?= $row['keterangan'] ?></td>
-            </tr>
-            <?php endwhile; ?>
-            <tr style="font-weight: bold; background: #e2e8f0;">
-                <td colspan="24" class="text-right">GRAND TOTAL:</td>
-                <td class="text-right">Rp <?= number_format($grand_total, 0, ',', '.') ?></td>
-                <td colspan="3"></td>
-            </tr>
-        </tbody>
-    </table>
+<?php if(!$download): ?>
+<div class="container-fluid">
+    <div class="row">
+        <!-- Sidebar -->
+        <div class="col-md-2 sidebar">
+            <div class="sidebar-brand">
+                <img src="assets/img/logo.png" class="sidebar-logo" alt="Logo">
+                <h4>Inventaris Sekolah</h4>
+                <h6>SDN Curug 01</h6>
+            </div>
+            <div class="sidebar-menu">
+                <a href="dashboard.php" class="<?= ($current_page=='dashboard.php') ? 'active' : '' ?>">
+                    <i class="fas fa-home"></i> Dashboard
+                </a>
+                <a href="ruangan.php" class="<?= ($current_page=='ruangan.php') ? 'active' : '' ?>">
+                    <i class="fas fa-door-open"></i> Manajemen Ruangan
+                </a>
+                <a href="tambah.php" class="<?= ($current_page=='tambah.php') ? 'active' : '' ?>">
+                    <i class="fas fa-plus-circle"></i> Tambah Aset
+                </a>
+                <a href="kondisi_aset.php" class="<?= ($current_page=='kondisi_aset.php') ? 'active' : '' ?>">
+                    <i class="fas fa-tools"></i> Kondisi Aset
+                </a>
+                <a href="export_excel.php" class="<?= ($current_page=='export_excel.php') ? 'active' : '' ?>">
+                    <i class="fas fa-file-excel"></i> Export Excel
+                </a>
+                <a href="logout.php">
+                    <i class="fas fa-sign-out-alt"></i> Logout
+                </a>
+            </div>
+        </div>
+
+        <!-- Main Content -->
+        <div class="col-md-10 main-content">
+            <div class="page-header">
+                <div>
+                    <h2><i class="fas fa-file-excel"></i> Preview Export Excel</h2>
+                </div>
+                <div class="d-flex align-items-center gap-2">
+                    <span><?= date('d F Y') ?></span>
+                    <a href="export_excel.php?download=1<?= $search ? '&search='.urlencode($search) : '' ?>" class="btn btn-primary">
+                        <i class="fas fa-download"></i> Download Excel
+                    </a>
+                    <a href="dashboard.php" class="btn btn-secondary">
+                        <i class="fas fa-arrow-left"></i> Kembali
+                    </a>
+                </div>
+            </div>
+
+            <!-- Statistics Preview -->
+            <div class="row mb-4">
+                <div class="col-md-3">
+                    <div class="stat-card">
+                        <h6>Total Aset</h6>
+                        <h3><?= $total_aset ?></h3>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="stat-card">
+                        <h6>Aset Pemerintah</h6>
+                        <h3><?= $total_pemerintah ?></h3>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="stat-card">
+                        <h6>Aset Sekolah</h6>
+                        <h3><?= $total_sekolah ?></h3>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="stat-card">
+                        <h6>Total Nilai</h6>
+                        <h3><?= formatRupiah($total_nilai) ?></h3>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Table Card -->
+            <div class="card">
+                <div class="card-header">
+                    <i class="fas fa-list"></i> Data Inventaris (Preview)
+                </div>
+                <div class="card-body">
+                    <!-- Search Form (Preview Only) -->
+                    <form method="GET" class="d-flex mb-3">
+                        <input type="hidden" name="download" value="0">
+                        <input type="text" name="search" class="form-control me-2" placeholder="Cari barang..." value="<?= $search ?>">
+                        <button type="submit" class="btn btn-primary"><i class="fas fa-search"></i></button>
+                        <?php if($search): ?>
+                            <a href="export_excel.php" class="btn btn-secondary ms-2"><i class="fas fa-times"></i></a>
+                        <?php endif; ?>
+                    </form>
+<?php endif; ?>
+
+                    <!-- Excel Header (Always Visible) -->
+                    <div class="excel-header">
+                        <h3>DATA INVENTARIS SEKOLAH - SDN CURUG 01</h3>
+                        <p>Tanggal Export: <?= date('d F Y') ?> <?= $search ? '| Filter: "'.$search.'"' : '' ?></p>
+                    </div>
+
+                    <!-- Data Table -->
+                    <div class="table-responsive">
+                        <table class="table table-bordered table-striped">
+                            <thead>
+                                <tr>
+                                    <th class="text-center">No</th>
+                                    <th>Sumber</th>
+                                    <th>Kode Lokasi</th>
+                                    <th>Nama Unit</th>
+                                    <th>Kode Barang</th>
+                                    <th>Nama Barang</th>
+                                    <th>Spesifikasi</th>
+                                    <th>Satuan</th>
+                                    <th class="text-center">Jumlah</th>
+                                    <th class="text-right">Harga Satuan</th>
+                                    <th class="text-right">Total</th>
+                                    <th>No Kontrak</th>
+                                    <th>Tgl Kontrak</th>
+                                    <th>No BAST</th>
+                                    <th>Tgl BAST</th>
+                                    <th>Nama PPK</th>
+                                    <th>Pengurus Barang</th>
+                                    <th>Keterangan</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <?php 
+                                $no = 1;
+                                $grand_total = 0;
+                                while($row = mysqli_fetch_assoc($result)): 
+                                    $grand_total += $row['total'];
+                                    $badgeClass = $row['sumber_pengadaan'] == 'Pemerintah' ? 'badge-pemerintah' : 
+                                                 ($row['sumber_pengadaan'] == 'Sekolah' ? 'badge-sekolah' : 'badge-bos');
+                                ?>
+                                <tr>
+                                    <td class="text-center"><?= $no++ ?></td>
+                                    <td><span class="badge <?= $badgeClass ?>"><?= $row['sumber_pengadaan'] ?></span></td>
+                                    <td><?= $row['kode_lokasi'] ?></td>
+                                    <td class="wrap"><?= $row['nama_unit_lokasi'] ?></td>
+                                    <td class="text-center"><?= $row['kode_barang_108'] ?></td>
+                                    <td class="wrap"><strong><?= $row['nama_barang_108'] ?></strong></td>
+                                    <td class="wrap"><?= $row['spesifikasi_nama_barang'] ?></td>
+                                    <td class="text-center"><?= $row['satuan'] ?></td>
+                                    <td class="text-center"><?= $row['jumlah'] ?></td>
+                                    <td class="text-right">Rp <?= number_format($row['harga_satuan'], 0, ',', '.') ?></td>
+                                    <td class="text-right"><strong>Rp <?= number_format($row['total'], 0, ',', '.') ?></strong></td>
+                                    <td><?= $row['no_dokumen_kontrak'] ?></td>
+                                    <td class="text-center"><?= $row['tanggal_kontrak'] ? date('d/m/Y', strtotime($row['tanggal_kontrak'])) : '-' ?></td>
+                                    <td><?= $row['no_bast'] ?></td>
+                                    <td class="text-center"><?= $row['tanggal_bast'] ? date('d/m/Y', strtotime($row['tanggal_bast'])) : '-' ?></td>
+                                    <td class="wrap"><?= $row['nama_ppk'] ?></td>
+                                    <td class="wrap"><?= $row['nama_pengurus_barang'] ?></td>
+                                    <td class="wrap"><?= $row['keterangan'] ?></td>
+                                </tr>
+                                <?php endwhile; ?>
+                                <tr style="font-weight: 700; background: var(--gray-medium) !important;">
+                                    <td colspan="10" class="text-right">GRAND TOTAL:</td>
+                                    <td class="text-right">Rp <?= number_format($grand_total, 0, ',', '.') ?></td>
+                                    <td colspan="6"></td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+
+<?php if(!$download): ?>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+<?php endif; ?>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 </body>
 </html>

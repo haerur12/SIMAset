@@ -1,6 +1,8 @@
 <?php
 require 'config.php';
 
+$current_page = basename($_SERVER['PHP_SELF']);
+
 if(!isset($_SESSION['login'])) {
     header("Location: index.php");
     exit;
@@ -63,10 +65,42 @@ $total_pages = ceil($total_records / $limit);
         padding: 0;
     }
 
-    .sidebar-brand {
-        padding: 30px 20px;
-        text-align: center;
-        border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    .sidebar-brand{
+    padding:30px 20px;
+    text-align:center;
+    border-bottom:1px solid rgba(255,255,255,0.1);
+}
+
+    .sidebar-logo{
+        width:120px;
+        height:120x;
+
+        display:block;
+        margin:0 auto 15px auto;
+
+        object-fit:contain;
+
+        border-radius:50%;
+        
+
+        padding:5px;
+
+        transition:0.3s;
+    }
+
+    .sidebar-logo:hover{
+        transform:scale(1.08);
+    }
+
+    .sidebar-brand h5{
+        margin-top:10px;
+        font-size:35px;
+        font-weight:600;
+        color:white;
+    }
+
+    .sidebar-brand small{
+        color:#cbd5e1;
     }
 
     .sidebar-brand i { font-size: 40px; margin-bottom: 10px; }
@@ -278,18 +312,42 @@ $total_pages = ceil($total_records / $limit);
         <!-- Sidebar -->
         <div class="col-md-2 sidebar">
             <div class="sidebar-brand">
-                <i class="fas fa-school"></i>
-                <h5>Inventaris Sekolah</h5>
-                <small>SDN Curug 01</small>
+                <img src="assets/img/logo.png" class="sidebar-logo">
+                <h4>Inventaris Sekolah</h4>
+                <h6>SDN Curug 01</h6>
             </div>
            <div class="sidebar-menu">
-           <a href="dashboard.php"><i class="fas fa-home"></i> Dashboard</a>
-           <a href="ruangan.php"><i class="fas fa-door-open"></i> Manajemen Ruangan</a>
-           <a href="tambah.php"><i class="fas fa-plus-circle"></i> Tambah Aset</a>
-           <a href="kondisi_aset.php" class="active"><i class="fas fa-tools"></i> Kondisi Aset</a>  <!-- TAMBAH INI -->
-           <a href="export_excel.php"><i class="fas fa-file-excel"></i> Export Excel</a>
-           <a href="logout.php"><i class="fas fa-sign-out-alt"></i> Logout</a>
-        </div>
+
+                <a href="dashboard.php"
+                class="<?= ($current_page=='dashboard.php') ? 'active' : '' ?>">
+                <i class="fas fa-home"></i> Dashboard
+                </a>
+
+                <a href="ruangan.php"
+                class="<?= ($current_page=='ruangan.php') ? 'active' : '' ?>">
+                <i class="fas fa-door-open"></i> Manajemen Ruangan
+                </a>
+
+                <a href="tambah.php"
+                class="<?= ($current_page=='tambah.php') ? 'active' : '' ?>">
+                <i class="fas fa-plus-circle"></i> Tambah Aset
+                </a>
+
+                <a href="kondisi_aset.php"
+                class="<?= ($current_page=='kondisi_aset.php') ? 'active' : '' ?>">
+                <i class="fas fa-tools"></i> Kondisi Aset
+                </a>
+
+                <a href="export_excel.php"
+                class="<?= ($current_page=='export_excel.php') ? 'active' : '' ?>">
+                <i class="fas fa-file-excel"></i> Export Excel
+                </a>
+
+                <a href="logout.php">
+                <i class="fas fa-sign-out-alt"></i> Logout
+                </a>
+
+            </div>
         </div>
 
         <!-- Main Content -->
