@@ -26,6 +26,7 @@ if(isset($_POST['update_kondisi'])) {
 }
 
 // Filter kondisi
+// Filter kondisi
 $filter = isset($_GET['filter']) ? $_GET['filter'] : 'all';
 $where = "";
 if($filter != 'all') {
@@ -542,6 +543,7 @@ $stat_perbaikan = mysqli_query($conn, "SELECT COUNT(*) as total FROM (
                                 <option value="Rusak Berat" <?= $filter=='Rusak Berat'?'selected':'' ?>>Rusak Berat</option>
                                 <option value="Dalam Perbaikan" <?= $filter=='Dalam Perbaikan'?'selected':'' ?>>Dalam Perbaikan</option>
                             </select>
+
                             <input type="text" name="search" class="form-control me-2" placeholder="Cari aset..." value="<?= $search ?>" style="width: 250px;">
                             <button type="submit" class="btn btn-primary">
                                 <i class="fas fa-search"></i> Filter
@@ -556,6 +558,7 @@ $stat_perbaikan = mysqli_query($conn, "SELECT COUNT(*) as total FROM (
                                 <tr>
                                     <th>No</th>
                                     <th>Nama Barang</th>
+                                    <th>Kategori</th>
                                     <th>Ruangan</th>
                                     <th>Kondisi</th>
                                     <th>Tanggal Cek</th>
@@ -585,6 +588,9 @@ $stat_perbaikan = mysqli_query($conn, "SELECT COUNT(*) as total FROM (
                                 <tr>
                                     <td><?= $no++ ?></td>
                                     <td><strong><?= $row['nama_barang_108'] ?></strong></td>
+                                    <td>
+                                        <span class="badge badge-primary"><?= $row['kategori_id'] ?: 'Umum' ?></span>
+                                    </td>
                                     <td><?= $row['nama_ruangan'] ?? '-' ?></td>
                                     <td><span class="badge <?= $badgeClass ?>"><?= $currentCondition ?></span></td>
                                     <td><?= formatTanggal($row['last_tanggal_cek'] ?? $row['created_at']) ?></td>

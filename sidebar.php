@@ -31,6 +31,14 @@ Manajemen Ruangan
 
 </a>
 
+<a href="kategori_aset.php"
+class="<?= ($current_page=='kategori_aset.php')?'active':'' ?>">
+
+<i class="fas fa-tags"></i>
+Kategori Aset
+
+</a>
+
 <a href="tambah.php"
 class="<?= ($current_page=='tambah.php')?'active':'' ?>">
 

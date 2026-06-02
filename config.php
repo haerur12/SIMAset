@@ -3,10 +3,10 @@ session_start();
 
 $host = "127.0.0.1";
 $user = "root";
-$pass = "123";
+$pass = "";
 $db   = "db_inventaris_sekolah";
 
-$conn = mysqli_connect("127.0.0.1", "root", "123", "db_inventaris_sekolah",3306);
+$conn = mysqli_connect("127.0.0.1", "root", "", "db_inventaris_sekolah",3306);
 
 if (!$conn) {
     die("Koneksi gagal: " . mysqli_connect_error());

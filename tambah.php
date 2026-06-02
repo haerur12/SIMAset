@@ -7,6 +7,8 @@ if(!isset($_SESSION['login'])) {
 }
 
 if(isset($_POST['simpan'])) {
+    // Kategori Aset (baru)
+    $kategori_id = isset($_POST['kategori_id']) ? mysqli_real_escape_string($conn, $_POST['kategori_id']) : '';
     // Informasi Lokasi
     $kode_lokasi = $_POST['kode_lokasi'];
     $nama_unit_lokasi = $_POST['nama_unit_lokasi'];
@@ -64,6 +66,7 @@ if(isset($_POST['simpan'])) {
         nama_sub_kegiatan = '$nama_sub_kegiatan',
         kode_rekening_belanja = '$kode_rekening_belanja',
         nama_rekening_belanja = '$nama_rekening_belanja',
+        kategori_id = '$kategori_id',
         kode_barang_108 = '$kode_barang_108',
         nama_barang_108 = '$nama_barang_108',
         spesifikasi_nama_barang = '$spesifikasi_nama_barang',
@@ -278,11 +281,29 @@ if(isset($_POST['simpan'])) {
         <!-- Informasi Barang -->
         <div class="form-section">
             <h5 class="section-title"><i class="fas fa-box"></i> Informasi Barang (Permendagri 108)</h5>
-            <div class="row">
-                <div class="col-md-4 mb-3">
-                    <label class="form-label">Kode Barang (108)</label>
-                    <input type="text" name="kode_barang_108" class="form-control">
+                <!-- ✅ DROPDOWN 7 KATEGORI UTAMA -->
+                <div class="row">
+                    <div class="col-md-6 mb-3">
+                        <label class="form-label">Kategori Aset *</label>
+                        <select name="kategori_id" class="form-select" required>
+                            <option value="">-- Pilih Kategori --</option>
+                            <option value="Buku & Bahan Ajar">Buku & Bahan Ajar</option>
+                            <option value="Alat Tulis Kantor (ATK)">Alat Tulis Kantor (ATK)</option>
+                            <option value="Perlengkapan Komputer & Printer">Perlengkapan Komputer & Printer</option>
+                            <option value="Perlengkapan Kebersihan">Perlengkapan Kebersihan</option>
+                            <option value="Perlengkapan Kesehatan">Perlengkapan Kesehatan</option>
+                            <option value="Peralatan Olahraga">Peralatan Olahraga</option>
+                            <option value="Peralatan dan Sarana Pendukung Sekolah">Peralatan dan Sarana Pendukung Sekolah</option>
+                        </select>
+                    </div>
+                    <div class="col-md-6 mb-3"></div>
                 </div>
+
+                <div class="row">
+                    <div class="col-md-4 mb-3">
+                        <label class="form-label">Kode Barang (108)</label>
+                        <input type="text" name="kode_barang_108" class="form-control">
+                    </div>
                 <div class="col-md-8 mb-3">
                     <label class="form-label">Nama Barang (Permendagri 108) *</label>
                     <input type="text" name="nama_barang_108" class="form-control" required>

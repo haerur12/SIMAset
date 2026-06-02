@@ -328,6 +328,11 @@ $total_pages = ceil($total_records / $limit);
                 <i class="fas fa-door-open"></i> Manajemen Ruangan
                 </a>
 
+                <a href="kategori_aset.php"
+                class="<?= ($current_page=='kategori_aset.php') ? 'active' : '' ?>">
+                <i class="fas fa-tools"></i> Kategori Aset
+                </a>
+
                 <a href="tambah.php"
                 class="<?= ($current_page=='tambah.php') ? 'active' : '' ?>">
                 <i class="fas fa-plus-circle"></i> Tambah Aset
@@ -337,6 +342,8 @@ $total_pages = ceil($total_records / $limit);
                 class="<?= ($current_page=='kondisi_aset.php') ? 'active' : '' ?>">
                 <i class="fas fa-tools"></i> Kondisi Aset
                 </a>
+
+                
 
                 <a href="export_excel.php"
                 class="<?= ($current_page=='export_excel.php') ? 'active' : '' ?>">
