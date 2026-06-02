@@ -343,7 +343,9 @@ $total_pages = ceil($total_records / $limit);
                 <i class="fas fa-tools"></i> Kondisi Aset
                 </a>
 
-                
+                <a href="tracking_aset.php" class="<?= ($current_page=='tracking_aset.php')?'active':'' ?>">
+                <i class="fas fa-route"></i> Tracking Aset
+                </a>
 
                 <a href="export_excel.php"
                 class="<?= ($current_page=='export_excel.php') ? 'active' : '' ?>">

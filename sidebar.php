@@ -55,6 +55,10 @@ Kondisi Aset
 
 </a>
 
+<a href="tracking_aset.php" class="<?= ($current_page=='tracking_aset.php')?'active':'' ?>">
+    <i class="fas fa-route"></i> Tracking Aset
+</a>
+
 <a href="export_excel.php"
 class="<?= ($current_page=='export_excel.php')?'active':'' ?>">
 
