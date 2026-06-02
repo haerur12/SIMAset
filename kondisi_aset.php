@@ -140,77 +140,80 @@ $stat_perbaikan = mysqli_query($conn, "SELECT COUNT(*) as total FROM (
            SIDEBAR
            ======================================== */
         .sidebar {
-            background-color: var(--primary);
-            min-height: 100vh;
-            color: var(--white);
-            padding: 0;
-        }
+        background-color: var(--primary);
+        min-height: 100vh;
+        color: var(--white);
+        padding: 0;
+    }
 
-        .sidebar-brand {
-            padding: 30px 20px;
-            text-align: center;
-            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-        }
+    .sidebar-brand{
+    padding:30px 20px;
+    text-align:center;
+    border-bottom:1px solid rgba(255,255,255,0.1);
+}
 
-        .sidebar-logo {
-            width: 120px;
-            height: 120px;
-            display: block;
-            margin: 0 auto 15px auto;
-            object-fit: contain;
-            border-radius: 50%;
-            padding: 5px;
-            transition: 0.3s;
-        }
+    .sidebar-logo{
+        width:120px;
+        height:120x;
 
-        .sidebar-logo:hover {
-            transform: scale(1.08);
-        }
+        display:block;
+        margin:0 auto 15px auto;
 
-        .sidebar-brand h4 {
-            margin-top: 10px;
-            font-size: 24px;
-            font-weight: 600;
-            color: var(--white);
-        }
+        object-fit:contain;
 
-        .sidebar-brand h6 {
-            color: #cbd5e1;
-            margin-bottom: 0;
-        }
+        border-radius:50%;
+        
 
-        .sidebar-menu {
-            padding: 20px 10px;
-        }
+        padding:5px;
 
-        .sidebar-menu a {
-            color: rgba(255, 255, 255, 0.8);
-            text-decoration: none;
-            padding: 14px 20px;
-            display: block;
-            margin-bottom: 5px;
-            border-radius: 6px;
-            transition: all 0.3s;
-            font-size: 14px;
-        }
+        transition:0.3s;
+    }
 
-        .sidebar-menu a:hover {
-            background-color: rgba(255, 255, 255, 0.1);
-            color: var(--white);
-            padding-left: 25px;
-        }
+    .sidebar-logo:hover{
+        transform:scale(1.08);
+    }
 
-        .sidebar-menu a.active {
-            background-color: var(--white);
-            color: var(--primary);
-            font-weight: 600;
-        }
+    .sidebar-brand h5{
+        margin-top:10px;
+        font-size:35px;
+        font-weight:600;
+        color:white;
+    }
 
-        .sidebar-menu a i {
-            margin-right: 12px;
-            width: 20px;
-            text-align: center;
-        }
+    .sidebar-brand small{
+        color:#cbd5e1;
+    }
+
+    .sidebar-brand i { font-size: 40px; margin-bottom: 10px; }
+    .sidebar-brand h5 { font-weight: 600; font-size: 16px; margin-bottom: 5px; }
+    .sidebar-brand small { font-size: 12px; opacity: 0.7; }
+
+    .sidebar-menu { padding: 20px 10px; }
+
+    .sidebar-menu a {
+        color: rgba(255, 255, 255, 0.8);
+        text-decoration: none;
+        padding: 14px 20px;
+        display: block;
+        margin-bottom: 5px;
+        border-radius: 6px;
+        transition: all 0.3s;
+        font-size: 14px;
+    }
+
+    .sidebar-menu a:hover {
+        background-color: rgba(255, 255, 255, 0.1);
+        color: var(--white);
+        padding-left: 25px;
+    }
+
+    .sidebar-menu a.active {
+        background-color: var(--white);
+        color: var(--primary);
+        font-weight: 600;
+    }
+
+    .sidebar-menu a i { margin-right: 12px; width: 20px; text-align: center; }
 
         /* ========================================
            MAIN CONTENT
