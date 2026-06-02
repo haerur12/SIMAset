@@ -362,6 +362,9 @@ $total_pages = ceil($total_records / $limit);
             <div class="page-header">
                 <h2><i class="fas fa-tachometer-alt"></i> Dashboard Inventaris</h2>
                 <span><?= date('d F Y') ?></span>
+                <a href="tambah.php" class="btn btn-primary shadow-sm">
+                <i class="fas fa-plus-circle"></i> Tambah Aset
+            </a>
             </div>
 
             <!-- Statistics -->
