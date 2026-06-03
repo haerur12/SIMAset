@@ -8,7 +8,8 @@ if(!isset($_SESSION['login'])) {
     exit;
 }
 
-if(isset($_POST['simpan'])) {
+if($_SERVER['REQUEST_METHOD'] === 'POST') {
+    
     // Sanitize input
     $kode_ruangan = mysqli_real_escape_string($conn, strtoupper(trim($_POST['kode_ruangan'])));
     $nama_ruangan = mysqli_real_escape_string($conn, trim($_POST['nama_ruangan']));
@@ -533,6 +534,7 @@ if(isset($_GET['error'])) {
                                 </button>
                                 <button type="submit" 
                                         name="simpan"
+                                        value="simpan"
                                         :disabled="isSubmitting"
                                         class="px-8 py-3 bg-gradient-to-r from-primary to-primary-light hover:from-primary-dark hover:to-primary text-white rounded-lg shadow-lg hover:shadow-xl transition-all flex items-center justify-center gap-2 text-sm font-semibold disabled:opacity-50 disabled:cursor-not-allowed">
                                     <template x-if="!isSubmitting">
@@ -785,9 +787,10 @@ function formApp() {
         },
         
         handleSubmit(event) {
-            // Validate required fields
-            if (!this.form.kode_ruangan || !this.form.nama_ruangan || !this.form.gedung || !this.form.lantai) {
-                event.preventDefault();
+            event.preventDefault(); // stop dulu
+
+            if (!this.form.kode_ruangan || !this.form.nama_ruangan || 
+                !this.form.gedung || !this.form.lantai) {
                 Swal.fire({
                     icon: 'warning',
                     title: 'Data Belum Lengkap',
@@ -796,9 +799,8 @@ function formApp() {
                 });
                 return;
             }
-            
+
             if (this.validation.kode.status === 'border-red-500') {
-                event.preventDefault();
                 Swal.fire({
                     icon: 'error',
                     title: 'Kode Ruangan Tidak Valid',
@@ -807,12 +809,33 @@ function formApp() {
                 });
                 return;
             }
-            
-            // Show loading
+
+            // Set semua hidden input langsung ke DOM
+            const form = this.$refs.roomForm;
+
+            // Hapus hidden inputs lama
+            ['lantai', 'kapasitas', 'fungsi_ruangan'].forEach(name => {
+                const old = form.querySelector(`input[name="${name}"]`);
+                if (old) old.remove();
+            });
+
+            // Buat ulang dengan nilai terbaru
+            [
+                ['lantai',          this.form.lantai],
+                ['kapasitas',       this.form.kapasitas],
+                ['fungsi_ruangan',  this.form.fungsi_ruangan],
+                ['simpan',          'simpan'],  // ← pastikan POST['simpan'] ada
+            ].forEach(([name, value]) => {
+                const input = document.createElement('input');
+                input.type  = 'hidden';
+                input.name  = name;
+                input.value = value;
+                form.appendChild(input);
+            });
+
             this.isSubmitting = true;
-            
-            // Clear draft on successful submit
             localStorage.removeItem('room_draft');
+            form.submit(); // ← submit native, bypass Alpine
         },
         
         toggleDarkMode() {

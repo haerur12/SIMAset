@@ -156,56 +156,7 @@ $gedung_list = mysqli_query($conn, "SELECT DISTINCT gedung FROM ruangan WHERE ge
     </div>
     
     <!-- Sidebar -->
-    <aside 
-        :class="sidebarOpen ? 'translate-x-0' : '-translate-x-full'"
-        class="fixed lg:translate-x-0 lg:static inset-y-0 left-0 z-50 w-64 bg-primary text-white flex flex-col shadow-2xl transition-transform duration-300 ease-in-out">
-        
-        <!-- Brand -->
-        <div class="p-6 text-center border-b border-white/10">
-            <img src="assets/img/logo.png" 
-                 onerror="this.src='https://ui-avatars.com/api/?name=SDN&background=ffffff&color=1a365d&size=120'"
-                 class="w-24 h-24 rounded-full mx-auto mb-3 object-cover border-4 border-white/20 hover:scale-110 transition-transform duration-300"
-                 alt="Logo">
-            <h4 class="text-lg font-semibold text-white">Inventaris Sekolah</h4>
-            <p class="text-xs text-gray-300 mt-1">SDN Curug 01</p>
-        </div>
-        
-        <!-- Menu -->
-        <nav class="flex-1 overflow-y-auto p-4 space-y-1">
-            <?php 
-            $menus = [
-                ['dashboard.php', 'fa-home', 'Dashboard'],
-                ['ruangan.php', 'fa-door-open', 'Manajemen Ruangan'],
-                ['kategori_aset.php', 'fa-tools', 'Kategori Aset'],
-                ['tambah.php', 'fa-plus-circle', 'Tambah Aset'],
-                ['kondisi_aset.php', 'fa-heart-pulse', 'Kondisi Aset'],
-                ['tracking_aset.php', 'fa-route', 'Tracking Aset'],
-                ['export_excel.php', 'fa-file-excel', 'Export Excel'],
-            ];
-            foreach($menus as $menu): ?>
-            <a href="<?= $menu[0] ?>" 
-               class="flex items-center px-4 py-3 rounded-lg text-sm transition-all duration-200 hover:bg-white/10 hover:pl-6 
-                      <?= ($current_page == $menu[0]) ? 'bg-white text-primary font-semibold shadow-lg' : 'text-white/80' ?>">
-                <i class="fas <?= $menu[1] ?> w-5 mr-3 text-center"></i>
-                <span><?= $menu[2] ?></span>
-                <?php if($current_page == $menu[0]): ?>
-                    <span class="ml-auto w-2 h-2 bg-primary rounded-full animate-pulse"></span>
-                <?php endif; ?>
-            </a>
-            <?php endforeach; ?>
-        </nav>
-        
-        <!-- Logout -->
-        <div class="p-4 border-t border-white/10">
-            <a href="logout.php" 
-               @click.prevent="confirmLogout()"
-               class="flex items-center px-4 py-3 rounded-lg text-sm text-white/80 hover:bg-red-500/20 hover:text-white transition-all">
-                <i class="fas fa-sign-out-alt w-5 mr-3"></i>
-                <span>Logout</span>
-            </a>
-        </div>
-    </aside>
-    
+   <?php include 'sidebar.php'; ?>
     <!-- Main Content -->
     <main class="flex-1 flex flex-col min-w-0 overflow-x-hidden">
         

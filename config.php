@@ -1,16 +1,22 @@
 <?php
 session_start();
+error_reporting(E_ALL);
+ini_set('display_errors', 0); // Jangan tampilkan error ke user
 
 $host = "127.0.0.1";
 $user = "root";
 $pass = "";
 $db   = "db_inventaris_sekolah";
 
-$conn = mysqli_connect("127.0.0.1", "root", "", "db_inventaris_sekolah",3306);
+$conn = mysqli_connect("127.0.0.1", "root", "", "db_inventaris_sekolah", 3306);
 
 if (!$conn) {
-    die("Koneksi gagal: " . mysqli_connect_error());
+    error_log("Database Connection Error: " . mysqli_connect_error(), 3, "logs/error.log");
+    die("Koneksi database gagal. Hubungi administrator.");
 }
+
+// Set charset UTF-8
+mysqli_set_charset($conn, "utf8mb4");
 
 // Fungsi untuk format rupiah
 function formatRupiah($angka) {
