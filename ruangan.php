@@ -10,6 +10,9 @@ if(!isset($_SESSION['login'])) {
 
 // Hapus Ruangan
 if(isset($_GET['hapus'])) {
+    // ✅ PROTEKSI: Hanya admin yang bisa hapus
+    requireAccess('delete', 'ruangan.php');
+
     $id = (int)$_GET['hapus'];
     $stmt = mysqli_prepare($conn, "DELETE FROM ruangan WHERE id = ?");
     mysqli_stmt_bind_param($stmt, "i", $id);
@@ -195,11 +198,13 @@ $gedung_list = mysqli_query($conn, "SELECT DISTINCT gedung FROM ruangan WHERE ge
                 </button>
                 
                 <!-- Add Room Button -->
+                <?php if(canCreate()): ?>
                 <a href="tambah_ruangan.php" 
                    class="hidden sm:flex items-center gap-2 px-4 py-2 lg:py-3 bg-primary hover:bg-primary-dark text-white rounded-lg shadow-md hover:shadow-lg transition-all duration-200 transform hover:-translate-y-0.5">
                     <i class="fas fa-plus-circle"></i>
                     <span class="text-sm font-medium">Tambah Ruangan</span>
                 </a>
+                <?php endif; ?>
             </div>
         </header>
         
@@ -377,16 +382,20 @@ $gedung_list = mysqli_query($conn, "SELECT DISTINCT gedung FROM ruangan WHERE ge
                                 </td>
                                 <td class="px-4 py-4">
                                     <div class="flex items-center justify-center gap-2">
+                                        <?php if(canUpdate()): ?>
                                         <a href="edit_ruangan.php?id=<?= $row['id'] ?>" 
                                            class="p-2 bg-amber-100 hover:bg-amber-500 text-amber-600 hover:text-white rounded-lg transition-all duration-200 transform hover:scale-110"
                                            title="Edit">
                                             <i class="fas fa-edit text-sm"></i>
                                         </a>
+                                        <?php endif; ?>
+                                        <?php if(canDelete()): ?>
                                         <button @click="confirmDelete(<?= $row['id'] ?>, '<?= htmlspecialchars(addslashes($row['nama_ruangan'])) ?>')"
                                                 class="p-2 bg-red-100 hover:bg-red-500 text-red-600 hover:text-white rounded-lg transition-all duration-200 transform hover:scale-110"
                                                 title="Hapus">
                                             <i class="fas fa-trash text-sm"></i>
                                         </button>
+                                        <?php endif; ?>
                                     </div>
                                 </td>
                             </tr>

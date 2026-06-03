@@ -181,15 +181,39 @@ $query_string = http_build_query($query_params);
                     <span class="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full animate-pulse"></span>
                 </button>
                 
-                <a href="tambah.php" 
-                   class="hidden sm:flex items-center gap-2 px-4 py-2 lg:py-3 bg-primary hover:bg-primary-dark text-white rounded-lg shadow-md hover:shadow-lg transition-all duration-200 transform hover:-translate-y-0.5">
-                    <i class="fas fa-plus-circle"></i>
-                    <span class="text-sm font-medium">Tambah Aset</span>
-                </a>
-            </div>
+                <?php if(canCreate()): ?>
+                    <a href="tambah.php" 
+                    class="hidden sm:flex items-center gap-2 px-4 py-2 lg:py-3 bg-primary hover:bg-primary-dark text-white rounded-lg shadow-md hover:shadow-lg transition-all duration-200 transform hover:-translate-y-0.5">
+                        <i class="fas fa-plus-circle"></i>
+                        <span class="text-sm font-medium">Tambah Aset</span>
+                    </a>
+                    <?php else: ?>
+                    <div class="hidden sm:flex items-center gap-2 px-4 py-2 lg:py-3 bg-gray-400 text-white rounded-lg cursor-not-allowed opacity-60" title="Hanya admin yang dapat menambah aset">
+                        <i class="fas fa-lock"></i>
+                        <span class="text-sm font-medium">View Only</span>
+                    </div>
+                    <?php endif; ?>
+                                </div>
         </header>
         
         <div class="flex-1 p-4 lg:p-8 space-y-6 animate-fade-in">
+
+            <!-- Flash Message -->
+            <?= showFlashMessage() ?>
+
+            <?php if(isKepsek()): ?>
+            <!-- Info Badge untuk Kepala Sekolah -->
+            <div class="bg-gradient-to-r from-blue-500 to-cyan-500 rounded-xl p-4 text-white flex items-center gap-3 shadow-lg">
+                <div class="p-3 bg-white/20 backdrop-blur rounded-lg">
+                    <i class="fas fa-user-tie text-2xl"></i>
+                </div>
+                <div class="flex-1">
+                    <h3 class="font-bold text-lg">Mode View Only</h3>
+                    <p class="text-sm text-white/90">Anda login sebagai <strong>Kepala Sekolah</strong>. Hanya dapat melihat data, tidak dapat menambah, mengedit, atau menghapus data.</p>
+                </div>
+                <i class="fas fa-eye text-3xl opacity-50"></i>
+            </div>
+            <?php endif; ?>
             
             <!-- ✅ SECTION 1: OVERVIEW CARDS (3 Card Besar) -->
             <div class="grid grid-cols-1 md:grid-cols-3 gap-4 lg:gap-6">
@@ -620,21 +644,30 @@ $query_string = http_build_query($query_params);
                                 </td>
                                 <td class="px-4 py-4">
                                     <div class="flex items-center justify-center gap-2">
-                                        <a href="edit.php?id=<?= $row['id'] ?>" 
-                                           class="p-2 bg-amber-100 hover:bg-amber-500 text-amber-600 hover:text-white rounded-lg transition-all duration-200 transform hover:scale-110"
-                                           title="Edit">
-                                            <i class="fas fa-edit text-sm"></i>
-                                        </a>
-                                        <button @click="confirmDelete(<?= $row['id'] ?>, '<?= htmlspecialchars(addslashes($row['nama_barang_108'])) ?>')"
-                                                class="p-2 bg-red-100 hover:bg-red-500 text-red-600 hover:text-white rounded-lg transition-all duration-200 transform hover:scale-110"
-                                                title="Hapus">
-                                            <i class="fas fa-trash text-sm"></i>
-                                        </button>
+                                        <!-- Tombol Detail - SEMUA ROLE -->
                                         <button onclick="showDetail(<?= $row['id'] ?>)" 
                                                 class="p-2 bg-blue-100 hover:bg-blue-500 text-blue-600 hover:text-white rounded-lg transition-all duration-200 transform hover:scale-110"
                                                 title="Detail">
                                             <i class="fas fa-eye text-sm"></i>
                                         </button>
+                                        
+                                        <!-- Tombol Edit - HANYA ADMIN -->
+                                        <?php if(canUpdate()): ?>
+                                        <a href="edit.php?id=<?= $row['id'] ?>" 
+                                        class="p-2 bg-amber-100 hover:bg-amber-500 text-amber-600 hover:text-white rounded-lg transition-all duration-200 transform hover:scale-110"
+                                        title="Edit">
+                                            <i class="fas fa-edit text-sm"></i>
+                                        </a>
+                                        <?php endif; ?>
+                                        
+                                        <!-- Tombol Hapus - HANYA ADMIN -->
+                                        <?php if(canDelete()): ?>
+                                        <button @click="confirmDelete(<?= $row['id'] ?>, '<?= htmlspecialchars(addslashes($row['nama_barang_108'])) ?>')"
+                                                class="p-2 bg-red-100 hover:bg-red-500 text-red-600 hover:text-white rounded-lg transition-all duration-200 transform hover:scale-110"
+                                                title="Hapus">
+                                            <i class="fas fa-trash text-sm"></i>
+                                        </button>
+                                        <?php endif; ?>
                                     </div>
                                 </td>
                             </tr>

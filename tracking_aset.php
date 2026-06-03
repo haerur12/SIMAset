@@ -10,6 +10,8 @@ if(!isset($_SESSION['login'])) {
 
 // ✅ TAMBAH TRACKING
 if(isset($_POST['tambah_tracking'])) {
+    // ✅ PROTEKSI: Hanya admin yang bisa tambah tracking
+    requireAccess('create', 'tracking_aset.php');
     $inventaris_id = (int)$_POST['inventaris_id'];
     $tanggal = mysqli_real_escape_string($conn, $_POST['tanggal_tracking']);
     $jenis = mysqli_real_escape_string($conn, $_POST['jenis_tracking']);
@@ -256,11 +258,13 @@ function formatTanggalLocal($tgl) {
                         class="p-2 lg:p-3 rounded-lg bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors">
                     <i class="fas" :class="darkMode ? 'fa-sun text-yellow-400' : 'fa-moon text-gray-600'"></i>
                 </button>
+                <?php if(canCreate()): ?>
                 <button @click="openAddModal()" 
                         class="hidden sm:flex items-center gap-2 px-4 py-2 lg:py-3 bg-primary hover:bg-primary-dark text-white rounded-lg shadow-md hover:shadow-lg transition-all duration-200 transform hover:-translate-y-0.5">
                     <i class="fas fa-plus-circle"></i>
                     <span class="text-sm font-medium">Tambah Tracking</span>
                 </button>
+                <?php endif; ?>
             </div>
         </header>
         

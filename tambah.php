@@ -1,6 +1,9 @@
 <?php
 require 'config.php';
 
+// ✅ PROTEKSI: Hanya admin yang bisa akses
+requireAccess('create', 'dashboard.php');
+
 $current_page = basename($_SERVER['PHP_SELF']);
 
 if(!isset($_SESSION['login'])) {

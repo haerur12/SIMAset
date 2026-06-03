@@ -2,6 +2,7 @@
 session_start();
 error_reporting(E_ALL);
 ini_set('display_errors', 0); // Jangan tampilkan error ke user
+require_once __DIR__ . '/auth.php';
 
 $host = "127.0.0.1";
 $user = "root";
@@ -17,6 +18,9 @@ if (!$conn) {
 
 // Set charset UTF-8
 mysqli_set_charset($conn, "utf8mb4");
+
+// ✅ Include auth helper
+require_once __DIR__ . '/auth.php';
 
 // Fungsi untuk format rupiah
 function formatRupiah($angka) {

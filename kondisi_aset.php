@@ -13,6 +13,8 @@ if(!isset($_SESSION['login'])) {
 
 // ✅ UPDATE JUMLAH KONDISI ASET (INSERT or UPDATE)
 if(isset($_POST['update_jumlah_kondisi'])) {
+    // ✅ PROTEKSI: Hanya admin yang bisa update kondisi
+    requireAccess('update', 'kondisi_aset.php');
     $inventaris_id = intval($_POST['inventaris_id']);
     $jumlah_baik = intval($_POST['jumlah_baik'] ?? 0);
     $jumlah_rusak_ringan = intval($_POST['jumlah_rusak_ringan'] ?? 0);
@@ -753,6 +755,7 @@ if(isset($_GET['detail_id'])) {
                 </div>
             </div>
             
+            <?php if(canUpdate()): ?>
             <form method="POST" action="kondisi_aset.php?detail_id=<?= $detail_aset['id'] ?>" class="space-y-4" id="formKondisi">
                 <input type="hidden" name="inventaris_id" value="<?= $detail_aset['id'] ?>">
                 
@@ -840,6 +843,17 @@ if(isset($_GET['detail_id'])) {
                     </button>
                 </div>
             </form>
+            <?php else: ?>
+            <div class="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-xl p-4 flex items-center gap-3">
+                <div class="p-2 bg-blue-100 dark:bg-blue-900/40 rounded-lg">
+                    <i class="fas fa-eye text-blue-600 dark:text-blue-300 text-xl"></i>
+                </div>
+                <div class="flex-1">
+                    <p class="font-semibold text-blue-900 dark:text-blue-300">Mode View Only</p>
+                    <p class="text-sm text-blue-700 dark:text-blue-400">Anda hanya dapat melihat data kondisi. Untuk update, silakan hubungi admin.</p>
+                </div>
+            </div>
+            <?php endif; ?>
             
             <div class="mt-6">
                 <h4 class="text-sm font-bold text-gray-800 dark:text-white mb-3 flex items-center gap-2">

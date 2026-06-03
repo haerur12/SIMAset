@@ -1,6 +1,9 @@
 <?php
 require 'config.php';
 
+// ✅ PROTEKSI: Hanya admin yang bisa hapus
+requireAccess('delete', 'dashboard.php');
+
 if(!isset($_SESSION['login'])) {
     header("Location: index.php");
     exit;

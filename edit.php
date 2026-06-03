@@ -1,5 +1,9 @@
 <?php
 require 'config.php';
+
+// ✅ PROTEKSI: Hanya admin yang bisa edit
+requireAccess('update', 'dashboard.php');
+
 error_reporting(E_ALL);
 ini_set('display_errors', 1);
 
