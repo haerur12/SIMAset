@@ -11,27 +11,35 @@ if(!isset($_SESSION['login'])) {
 // ✅ FILTER SUMBER PENGADAAN
 $filter_sumber = isset($_GET['sumber']) ? mysqli_real_escape_string($conn, $_GET['sumber']) : '';
 
-// ✅ STATISTIK LENGKAP (5 SUMBER PENGADAAN)
-$total_aset = mysqli_query($conn, "SELECT COUNT(*) as total FROM inventaris")->fetch_assoc()['total'];
-$total_pemerintah = mysqli_query($conn, "SELECT COUNT(*) as total FROM inventaris WHERE sumber_pengadaan = 'Pemerintah'")->fetch_assoc()['total'];
-$total_sekolah = mysqli_query($conn, "SELECT COUNT(*) as total FROM inventaris WHERE sumber_pengadaan = 'Sekolah'")->fetch_assoc()['total'];
-$total_bos = mysqli_query($conn, "SELECT COUNT(*) as total FROM inventaris WHERE sumber_pengadaan = 'BOS'")->fetch_assoc()['total'];
-$total_dak = mysqli_query($conn, "SELECT COUNT(*) as total FROM inventaris WHERE sumber_pengadaan = 'DAK'")->fetch_assoc()['total'];
-$total_apbd = mysqli_query($conn, "SELECT COUNT(*) as total FROM inventaris WHERE sumber_pengadaan = 'APBD'")->fetch_assoc()['total'];
+// ✅ STATISTIK BERBASIS UNIT/KUANTITAS (SUM dari kolom jumlah)
+// Sama seperti kondisi_aset.php
+
+// Total unit semua aset (SUM jumlah, bukan COUNT record)
+$total_unit = mysqli_query($conn, "SELECT COALESCE(SUM(jumlah), 0) as total FROM inventaris")->fetch_assoc()['total'];
+$total_record = mysqli_query($conn, "SELECT COUNT(*) as total FROM inventaris")->fetch_assoc()['total'];
+
+// Total unit per sumber pengadaan (SUM jumlah)
+$total_pemerintah = mysqli_query($conn, "SELECT COALESCE(SUM(jumlah), 0) as total FROM inventaris WHERE sumber_pengadaan = 'Pemerintah'")->fetch_assoc()['total'];
+$total_sekolah = mysqli_query($conn, "SELECT COALESCE(SUM(jumlah), 0) as total FROM inventaris WHERE sumber_pengadaan = 'Sekolah'")->fetch_assoc()['total'];
+$total_bos = mysqli_query($conn, "SELECT COALESCE(SUM(jumlah), 0) as total FROM inventaris WHERE sumber_pengadaan = 'BOS'")->fetch_assoc()['total'];
+$total_dak = mysqli_query($conn, "SELECT COALESCE(SUM(jumlah), 0) as total FROM inventaris WHERE sumber_pengadaan = 'DAK'")->fetch_assoc()['total'];
+$total_apbd = mysqli_query($conn, "SELECT COALESCE(SUM(jumlah), 0) as total FROM inventaris WHERE sumber_pengadaan = 'APBD'")->fetch_assoc()['total'];
+
+// Total nilai
 $total_nilai = mysqli_query($conn, "SELECT COALESCE(SUM(total), 0) as total FROM inventaris")->fetch_assoc()['total'];
 
-// ✅ PERHITUNGAN PERSENTASE (Logic sama dengan kondisi_aset.php)
-// Rumus: (jumlah_kategori / total_aset) × 100
-$persen_pemerintah = $total_aset > 0 ? round(($total_pemerintah / $total_aset) * 100) : 0;
-$persen_sekolah = $total_aset > 0 ? round(($total_sekolah / $total_aset) * 100) : 0;
-$persen_bos = $total_aset > 0 ? round(($total_bos / $total_aset) * 100) : 0;
-$persen_dak = $total_aset > 0 ? round(($total_dak / $total_aset) * 100) : 0;
-$persen_apbd = $total_aset > 0 ? round(($total_apbd / $total_aset) * 100) : 0;
+// ✅ PERHITUNGAN PERSENTASE BERDASARKAN UNIT
+// Rumus: (unit_sumber / total_unit_semua) × 100
+$persen_pemerintah = $total_unit > 0 ? round(($total_pemerintah / $total_unit) * 100) : 0;
+$persen_sekolah = $total_unit > 0 ? round(($total_sekolah / $total_unit) * 100) : 0;
+$persen_bos = $total_unit > 0 ? round(($total_bos / $total_unit) * 100) : 0;
+$persen_dak = $total_unit > 0 ? round(($total_dak / $total_unit) * 100) : 0;
+$persen_apbd = $total_unit > 0 ? round(($total_apbd / $total_unit) * 100) : 0;
 
-// Hitung rata-rata nilai per aset
-$rata_rata_nilai = $total_aset > 0 ? round($total_nilai / $total_aset) : 0;
+// Rata-rata nilai per unit
+$rata_rata_nilai = $total_unit > 0 ? round($total_nilai / $total_unit) : 0;
 
-// Hitung jumlah sumber yang aktif (punya aset)
+// Jumlah sumber yang aktif (punya unit > 0)
 $sumber_aktif = 0;
 if($total_pemerintah > 0) $sumber_aktif++;
 if($total_sekolah > 0) $sumber_aktif++;
@@ -67,6 +75,16 @@ $query_params = [];
 if($search) $query_params['search'] = $search;
 if($filter_sumber) $query_params['sumber'] = $filter_sumber;
 $query_string = http_build_query($query_params);
+
+// Helper function untuk format angka besar
+function formatUnit($angka) {
+    if($angka >= 1000000) {
+        return round($angka / 1000000, 1) . 'M';
+    } elseif($angka >= 1000) {
+        return round($angka / 1000, 1) . 'K';
+    }
+    return number_format($angka);
+}
 ?>
 <!DOCTYPE html>
 <html lang="id" x-data="{ darkMode: localStorage.getItem('darkMode') === 'true', sidebarOpen: false }" 
@@ -126,7 +144,6 @@ $query_string = http_build_query($query_params);
             box-shadow: 0 4px 12px rgba(26, 54, 93, 0.3);
         }
         
-        /* Progress bar animation */
         .progress-bar-fill {
             transition: width 1s ease-out;
         }
@@ -182,18 +199,18 @@ $query_string = http_build_query($query_params);
                 </button>
                 
                 <?php if(canCreate()): ?>
-                    <a href="tambah.php" 
-                    class="hidden sm:flex items-center gap-2 px-4 py-2 lg:py-3 bg-primary hover:bg-primary-dark text-white rounded-lg shadow-md hover:shadow-lg transition-all duration-200 transform hover:-translate-y-0.5">
-                        <i class="fas fa-plus-circle"></i>
-                        <span class="text-sm font-medium">Tambah Aset</span>
-                    </a>
-                    <?php else: ?>
-                    <div class="hidden sm:flex items-center gap-2 px-4 py-2 lg:py-3 bg-gray-400 text-white rounded-lg cursor-not-allowed opacity-60" title="Hanya admin yang dapat menambah aset">
-                        <i class="fas fa-lock"></i>
-                        <span class="text-sm font-medium">View Only</span>
-                    </div>
-                    <?php endif; ?>
-                                </div>
+                <a href="tambah.php" 
+                   class="hidden sm:flex items-center gap-2 px-4 py-2 lg:py-3 bg-primary hover:bg-primary-dark text-white rounded-lg shadow-md hover:shadow-lg transition-all duration-200 transform hover:-translate-y-0.5">
+                    <i class="fas fa-plus-circle"></i>
+                    <span class="text-sm font-medium">Tambah Aset</span>
+                </a>
+                <?php else: ?>
+                <div class="hidden sm:flex items-center gap-2 px-4 py-2 lg:py-3 bg-gray-400 text-white rounded-lg cursor-not-allowed opacity-60" title="Hanya admin yang dapat menambah aset">
+                    <i class="fas fa-lock"></i>
+                    <span class="text-sm font-medium">View Only</span>
+                </div>
+                <?php endif; ?>
+            </div>
         </header>
         
         <div class="flex-1 p-4 lg:p-8 space-y-6 animate-fade-in">
@@ -218,24 +235,24 @@ $query_string = http_build_query($query_params);
             <!-- ✅ SECTION 1: OVERVIEW CARDS (3 Card Besar) -->
             <div class="grid grid-cols-1 md:grid-cols-3 gap-4 lg:gap-6">
                 
-                <!-- Card 1: Total Aset -->
+                <!-- Card 1: Total Unit Aset -->
                 <div class="stagger-item group relative bg-gradient-to-br from-blue-500 to-blue-600 rounded-2xl shadow-lg hover:shadow-2xl transition-all duration-300 overflow-hidden text-white hover:-translate-y-1">
                     <div class="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full -translate-y-16 translate-x-16"></div>
                     <div class="absolute bottom-0 left-0 w-24 h-24 bg-white/10 rounded-full translate-y-12 -translate-x-12"></div>
                     <div class="relative p-6">
                         <div class="flex items-start justify-between mb-4">
                             <div class="p-3 bg-white/20 backdrop-blur rounded-xl">
-                                <i class="fas fa-boxes-stacked text-2xl"></i>
+                                <i class="fas fa-cubes text-2xl"></i>
                             </div>
                             <span class="text-xs font-bold px-2.5 py-1 bg-white/20 backdrop-blur rounded-full">
-                                100%
+                                <?= $total_record ?> Jenis
                             </span>
                         </div>
-                        <p class="text-xs uppercase tracking-wider text-white/80 font-semibold mb-1">Total Aset</p>
-                        <h3 class="text-4xl font-bold mb-2"><?= number_format($total_aset) ?></h3>
+                        <p class="text-xs uppercase tracking-wider text-white/80 font-semibold mb-1">Total Unit Aset</p>
+                        <h3 class="text-4xl font-bold mb-2"><?= number_format($total_unit) ?></h3>
                         <p class="text-xs text-white/70">
                             <i class="fas fa-chart-line mr-1"></i>
-                            Keseluruhan aset tercatat
+                            <?= $total_record ?> jenis aset tercatat
                         </p>
                     </div>
                 </div>
@@ -257,7 +274,7 @@ $query_string = http_build_query($query_params);
                         <h3 class="text-3xl font-bold mb-2"><?= formatRupiah($total_nilai) ?></h3>
                         <p class="text-xs text-white/70">
                             <i class="fas fa-chart-bar mr-1"></i>
-                            Rata-rata: <?= formatRupiah($rata_rata_nilai) ?>/aset
+                            Rata-rata: <?= formatRupiah($rata_rata_nilai) ?>/unit
                         </p>
                     </div>
                 </div>
@@ -279,7 +296,7 @@ $query_string = http_build_query($query_params);
                         <h3 class="text-4xl font-bold mb-2"><?= $sumber_aktif ?></h3>
                         <p class="text-xs text-white/70">
                             <i class="fas fa-check-circle mr-1"></i>
-                            Sumber yang memiliki aset
+                            Sumber yang memiliki unit aset
                         </p>
                     </div>
                 </div>
@@ -298,12 +315,12 @@ $query_string = http_build_query($query_params);
                             </div>
                             <div>
                                 <h3 class="text-lg font-bold text-gray-800 dark:text-white">Breakdown Sumber Pengadaan</h3>
-                                <p class="text-xs text-gray-500 dark:text-gray-400">Distribusi aset berdasarkan sumber pengadaan</p>
+                                <p class="text-xs text-gray-500 dark:text-gray-400">Distribusi unit aset berdasarkan sumber pengadaan</p>
                             </div>
                         </div>
                         <div class="hidden sm:flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
                             <i class="fas fa-info-circle"></i>
-                            <span>Total: <strong class="text-primary"><?= number_format($total_aset) ?></strong> aset</span>
+                            <span>Total: <strong class="text-primary"><?= number_format($total_unit) ?></strong> unit</span>
                         </div>
                     </div>
                 </div>
@@ -379,13 +396,14 @@ $query_string = http_build_query($query_params);
                                 </span>
                             </div>
                             
-                            <!-- Title & Count -->
+                            <!-- Title & Count (Unit) -->
                             <p class="text-xs uppercase tracking-wider text-gray-600 dark:text-gray-400 font-semibold mb-1">
                                 <?= $card['nama'] ?>
                             </p>
-                            <h4 class="text-2xl font-bold text-gray-800 dark:text-white mb-3">
+                            <h4 class="text-2xl font-bold text-gray-800 dark:text-white mb-1">
                                 <?= number_format($card['total']) ?>
                             </h4>
+                            <p class="text-[10px] text-gray-500 dark:text-gray-400 mb-3">unit aset</p>
                             
                             <!-- Progress Bar -->
                             <div class="relative">
@@ -395,7 +413,7 @@ $query_string = http_build_query($query_params);
                                 </div>
                                 <p class="text-[10px] text-gray-500 dark:text-gray-400 mt-1.5">
                                     <i class="fas fa-chart-line mr-1"></i>
-                                    dari total aset
+                                    dari total unit
                                 </p>
                             </div>
                             
@@ -500,7 +518,7 @@ $query_string = http_build_query($query_params);
                             <?php endif; ?>
                         </div>
                         
-                        <!-- Filter Pills -->
+                        <!-- Filter Pills (Menampilkan Unit) -->
                         <div x-show="showFilter" 
                              x-transition:enter="transition ease-out duration-200"
                              x-transition:enter-start="opacity-0 -translate-y-2"
@@ -515,42 +533,42 @@ $query_string = http_build_query($query_params);
                                class="filter-pill px-4 py-2 rounded-full text-xs font-semibold transition-all flex items-center gap-1.5 <?= (!$filter_sumber || $filter_sumber === 'all') ? 'active' : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-600' ?>">
                                 <i class="fas fa-layer-group"></i>
                                 <span>Semua</span>
-                                <span class="ml-1 px-1.5 py-0.5 bg-white/20 rounded-full text-[10px]"><?= $total_aset ?></span>
+                                <span class="ml-1 px-1.5 py-0.5 bg-white/20 rounded-full text-[10px]"><?= formatUnit($total_unit) ?> unit</span>
                             </a>
                             
                             <a href="?sumber=Pemerintah<?= $search ? '&search=' . urlencode($search) : '' ?>" 
                                class="filter-pill px-4 py-2 rounded-full text-xs font-semibold transition-all flex items-center gap-1.5 <?= $filter_sumber === 'Pemerintah' ? 'active' : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-600' ?>">
                                 <i class="fas fa-landmark"></i>
                                 <span>Pemerintah</span>
-                                <span class="ml-1 px-1.5 py-0.5 bg-white/20 rounded-full text-[10px]"><?= $total_pemerintah ?></span>
+                                <span class="ml-1 px-1.5 py-0.5 bg-white/20 rounded-full text-[10px]"><?= formatUnit($total_pemerintah) ?> unit</span>
                             </a>
                             
                             <a href="?sumber=Sekolah<?= $search ? '&search=' . urlencode($search) : '' ?>" 
                                class="filter-pill px-4 py-2 rounded-full text-xs font-semibold transition-all flex items-center gap-1.5 <?= $filter_sumber === 'Sekolah' ? 'active' : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-600' ?>">
                                 <i class="fas fa-school"></i>
                                 <span>Sekolah</span>
-                                <span class="ml-1 px-1.5 py-0.5 bg-white/20 rounded-full text-[10px]"><?= $total_sekolah ?></span>
+                                <span class="ml-1 px-1.5 py-0.5 bg-white/20 rounded-full text-[10px]"><?= formatUnit($total_sekolah) ?> unit</span>
                             </a>
                             
                             <a href="?sumber=BOS<?= $search ? '&search=' . urlencode($search) : '' ?>" 
                                class="filter-pill px-4 py-2 rounded-full text-xs font-semibold transition-all flex items-center gap-1.5 <?= $filter_sumber === 'BOS' ? 'active' : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-600' ?>">
                                 <i class="fas fa-money-bill-wave"></i>
                                 <span>BOS</span>
-                                <span class="ml-1 px-1.5 py-0.5 bg-white/20 rounded-full text-[10px]"><?= $total_bos ?></span>
+                                <span class="ml-1 px-1.5 py-0.5 bg-white/20 rounded-full text-[10px]"><?= formatUnit($total_bos) ?> unit</span>
                             </a>
                             
                             <a href="?sumber=DAK<?= $search ? '&search=' . urlencode($search) : '' ?>" 
                                class="filter-pill px-4 py-2 rounded-full text-xs font-semibold transition-all flex items-center gap-1.5 <?= $filter_sumber === 'DAK' ? 'active' : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-600' ?>">
                                 <i class="fas fa-building-columns"></i>
                                 <span>DAK</span>
-                                <span class="ml-1 px-1.5 py-0.5 bg-white/20 rounded-full text-[10px]"><?= $total_dak ?></span>
+                                <span class="ml-1 px-1.5 py-0.5 bg-white/20 rounded-full text-[10px]"><?= formatUnit($total_dak) ?> unit</span>
                             </a>
                             
                             <a href="?sumber=APBD<?= $search ? '&search=' . urlencode($search) : '' ?>" 
                                class="filter-pill px-4 py-2 rounded-full text-xs font-semibold transition-all flex items-center gap-1.5 <?= $filter_sumber === 'APBD' ? 'active' : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-600' ?>">
                                 <i class="fas fa-landmark-flag"></i>
                                 <span>APBD</span>
-                                <span class="ml-1 px-1.5 py-0.5 bg-white/20 rounded-full text-[10px]"><?= $total_apbd ?></span>
+                                <span class="ml-1 px-1.5 py-0.5 bg-white/20 rounded-full text-[10px]"><?= formatUnit($total_apbd) ?> unit</span>
                             </a>
                         </div>
                     </div>
@@ -589,7 +607,7 @@ $query_string = http_build_query($query_params);
                                         <a href="dashboard.php" class="mt-2 px-4 py-2 bg-primary hover:bg-primary-dark text-white rounded-lg text-sm transition-all">
                                             <i class="fas fa-times mr-1"></i> Reset Filter
                                         </a>
-                                        <?php else: ?>
+                                        <?php elseif(canCreate()): ?>
                                         <a href="tambah.php" class="mt-2 px-4 py-2 bg-primary hover:bg-primary-dark text-white rounded-lg text-sm transition-all">
                                             <i class="fas fa-plus mr-1"></i> Tambah Aset
                                         </a>
@@ -654,8 +672,8 @@ $query_string = http_build_query($query_params);
                                         <!-- Tombol Edit - HANYA ADMIN -->
                                         <?php if(canUpdate()): ?>
                                         <a href="edit.php?id=<?= $row['id'] ?>" 
-                                        class="p-2 bg-amber-100 hover:bg-amber-500 text-amber-600 hover:text-white rounded-lg transition-all duration-200 transform hover:scale-110"
-                                        title="Edit">
+                                           class="p-2 bg-amber-100 hover:bg-amber-500 text-amber-600 hover:text-white rounded-lg transition-all duration-200 transform hover:scale-110"
+                                           title="Edit">
                                             <i class="fas fa-edit text-sm"></i>
                                         </a>
                                         <?php endif; ?>
@@ -868,9 +886,8 @@ function tableApp() {
     };
 }
 
-// ✅ FUNGSI SHOW DETAIL (BARU)
+// ✅ FUNGSI SHOW DETAIL
 function showDetail(id) {
-    // Tampilkan loading
     Swal.fire({
         title: 'Memuat detail...',
         html: '<i class="fas fa-spinner fa-spin text-3xl text-primary"></i>',
@@ -879,7 +896,6 @@ function showDetail(id) {
         allowEscapeKey: false
     });
     
-    // Fetch data via AJAX
     fetch(`api_detail_aset.php?id=${id}`)
         .then(response => response.json())
         .then(result => {
@@ -894,8 +910,6 @@ function showDetail(id) {
             }
             
             const d = result.data;
-            
-            // Format helper
             const formatRupiah = (num) => 'Rp ' + parseInt(num || 0).toLocaleString('id-ID');
             const formatDate = (date) => {
                 if (!date || date === '0000-00-00' || date === 'NULL') return '-';
@@ -903,7 +917,6 @@ function showDetail(id) {
                 return d.toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' });
             };
             
-            // Badge kondisi
             const kondisiColors = {
                 'Baik': { bg: 'bg-emerald-100', text: 'text-emerald-700', icon: 'fa-check-circle' },
                 'Rusak Ringan': { bg: 'bg-amber-100', text: 'text-amber-700', icon: 'fa-exclamation-triangle' },
@@ -912,7 +925,6 @@ function showDetail(id) {
             };
             const kondisiStyle = kondisiColors[d.kondisi_terkini] || { bg: 'bg-gray-100', text: 'text-gray-500', icon: 'fa-question-circle' };
             
-            // Badge sumber
             const sumberColors = {
                 'Pemerintah': 'bg-primary/10 text-primary',
                 'Sekolah': 'bg-amber-100 text-amber-700',
@@ -922,11 +934,8 @@ function showDetail(id) {
             };
             const sumberStyle = sumberColors[d.sumber_pengadaan] || 'bg-gray-100 text-gray-700';
             
-            // Build HTML modal
             const html = `
                 <div class="text-left space-y-4 max-h-[65vh] overflow-y-auto pr-2 custom-modal-scroll">
-                    
-                    <!-- Header Info -->
                     <div class="bg-gradient-to-br from-primary to-primary-dark rounded-xl p-4 text-white">
                         <div class="flex items-start gap-3">
                             <div class="p-2.5 bg-white/20 backdrop-blur rounded-lg flex-shrink-0">
@@ -950,102 +959,53 @@ function showDetail(id) {
                         </div>
                     </div>
                     
-                    <!-- Grid Info -->
                     <div class="grid grid-cols-2 gap-3">
-                        <!-- Lokasi -->
                         <div class="col-span-2 bg-blue-50 rounded-lg p-3 border border-blue-100">
                             <p class="text-[10px] uppercase tracking-wider text-blue-600 font-bold mb-2 flex items-center gap-1">
                                 <i class="fas fa-map-marker-alt"></i> Lokasi
                             </p>
                             <div class="space-y-1.5 text-xs">
-                                <div class="flex justify-between">
-                                    <span class="text-gray-600">Ruangan</span>
-                                    <span class="font-semibold text-gray-800">${d.nama_ruangan || '-'}</span>
-                                </div>
-                                <div class="flex justify-between">
-                                    <span class="text-gray-600">Kode Ruangan</span>
-                                    <span class="font-mono font-semibold text-gray-800">${d.kode_ruangan || '-'}</span>
-                                </div>
-                                <div class="flex justify-between">
-                                    <span class="text-gray-600">Gedung / Lantai</span>
-                                    <span class="font-semibold text-gray-800">${d.gedung || '-'} / Lantai ${d.lantai || '-'}</span>
-                                </div>
-                                <div class="flex justify-between">
-                                    <span class="text-gray-600">Kode Lokasi</span>
-                                    <span class="font-mono font-semibold text-gray-800">${d.kode_lokasi || '-'}</span>
-                                </div>
+                                <div class="flex justify-between"><span class="text-gray-600">Ruangan</span><span class="font-semibold text-gray-800">${d.nama_ruangan || '-'}</span></div>
+                                <div class="flex justify-between"><span class="text-gray-600">Kode Ruangan</span><span class="font-mono font-semibold text-gray-800">${d.kode_ruangan || '-'}</span></div>
+                                <div class="flex justify-between"><span class="text-gray-600">Gedung / Lantai</span><span class="font-semibold text-gray-800">${d.gedung || '-'} / Lantai ${d.lantai || '-'}</span></div>
+                                <div class="flex justify-between"><span class="text-gray-600">Kode Lokasi</span><span class="font-mono font-semibold text-gray-800">${d.kode_lokasi || '-'}</span></div>
                             </div>
                         </div>
                         
-                        <!-- Nilai -->
                         <div class="col-span-2 bg-emerald-50 rounded-lg p-3 border border-emerald-100">
                             <p class="text-[10px] uppercase tracking-wider text-emerald-600 font-bold mb-2 flex items-center gap-1">
                                 <i class="fas fa-coins"></i> Nilai Aset
                             </p>
                             <div class="grid grid-cols-3 gap-2 text-center">
-                                <div>
-                                    <p class="text-[10px] text-gray-500">Jumlah</p>
-                                    <p class="font-bold text-gray-800">${d.jumlah || 0}</p>
-                                    <p class="text-[10px] text-gray-500">${d.satuan || '-'}</p>
-                                </div>
-                                <div>
-                                    <p class="text-[10px] text-gray-500">Harga Satuan</p>
-                                    <p class="font-bold text-gray-800 text-xs">${formatRupiah(d.harga_satuan)}</p>
-                                </div>
-                                <div class="bg-emerald-100 rounded p-1">
-                                    <p class="text-[10px] text-emerald-700">Total</p>
-                                    <p class="font-bold text-emerald-700 text-xs">${formatRupiah(d.total)}</p>
-                                </div>
+                                <div><p class="text-[10px] text-gray-500">Jumlah</p><p class="font-bold text-gray-800">${d.jumlah || 0}</p><p class="text-[10px] text-gray-500">${d.satuan || '-'}</p></div>
+                                <div><p class="text-[10px] text-gray-500">Harga Satuan</p><p class="font-bold text-gray-800 text-xs">${formatRupiah(d.harga_satuan)}</p></div>
+                                <div class="bg-emerald-100 rounded p-1"><p class="text-[10px] text-emerald-700">Total</p><p class="font-bold text-emerald-700 text-xs">${formatRupiah(d.total)}</p></div>
                             </div>
                         </div>
                         
-                        <!-- Pengadaan -->
                         <div class="col-span-2 bg-amber-50 rounded-lg p-3 border border-amber-100">
                             <p class="text-[10px] uppercase tracking-wider text-amber-600 font-bold mb-2 flex items-center gap-1">
                                 <i class="fas fa-file-contract"></i> Informasi Pengadaan
                             </p>
                             <div class="space-y-1.5 text-xs">
-                                <div class="flex justify-between">
-                                    <span class="text-gray-600">No. Kontrak</span>
-                                    <span class="font-semibold text-gray-800">${d.no_dokumen_kontrak || '-'}</span>
-                                </div>
-                                <div class="flex justify-between">
-                                    <span class="text-gray-600">Tgl Kontrak</span>
-                                    <span class="font-semibold text-gray-800">${formatDate(d.tanggal_kontrak)}</span>
-                                </div>
-                                <div class="flex justify-between">
-                                    <span class="text-gray-600">No. BAST</span>
-                                    <span class="font-semibold text-gray-800">${d.no_bast || '-'}</span>
-                                </div>
-                                <div class="flex justify-between">
-                                    <span class="text-gray-600">Tgl BAST</span>
-                                    <span class="font-semibold text-gray-800">${formatDate(d.tanggal_bast)}</span>
-                                </div>
-                                <div class="flex justify-between">
-                                    <span class="text-gray-600">Pihak ke-3</span>
-                                    <span class="font-semibold text-gray-800">${d.pihak_ke_3 || '-'}</span>
-                                </div>
+                                <div class="flex justify-between"><span class="text-gray-600">No. Kontrak</span><span class="font-semibold text-gray-800">${d.no_dokumen_kontrak || '-'}</span></div>
+                                <div class="flex justify-between"><span class="text-gray-600">Tgl Kontrak</span><span class="font-semibold text-gray-800">${formatDate(d.tanggal_kontrak)}</span></div>
+                                <div class="flex justify-between"><span class="text-gray-600">No. BAST</span><span class="font-semibold text-gray-800">${d.no_bast || '-'}</span></div>
+                                <div class="flex justify-between"><span class="text-gray-600">Tgl BAST</span><span class="font-semibold text-gray-800">${formatDate(d.tanggal_bast)}</span></div>
+                                <div class="flex justify-between"><span class="text-gray-600">Pihak ke-3</span><span class="font-semibold text-gray-800">${d.pihak_ke_3 || '-'}</span></div>
                             </div>
                         </div>
                         
-                        <!-- Pejabat -->
                         <div class="col-span-2 bg-purple-50 rounded-lg p-3 border border-purple-100">
                             <p class="text-[10px] uppercase tracking-wider text-purple-600 font-bold mb-2 flex items-center gap-1">
                                 <i class="fas fa-user-tie"></i> Pejabat
                             </p>
                             <div class="space-y-1.5 text-xs">
-                                <div class="flex justify-between">
-                                    <span class="text-gray-600">PPK</span>
-                                    <span class="font-semibold text-gray-800">${d.nama_ppk || '-'}</span>
-                                </div>
-                                <div class="flex justify-between">
-                                    <span class="text-gray-600">Pengurus Barang</span>
-                                    <span class="font-semibold text-gray-800">${d.nama_pengurus_barang || '-'}</span>
-                                </div>
+                                <div class="flex justify-between"><span class="text-gray-600">PPK</span><span class="font-semibold text-gray-800">${d.nama_ppk || '-'}</span></div>
+                                <div class="flex justify-between"><span class="text-gray-600">Pengurus Barang</span><span class="font-semibold text-gray-800">${d.nama_pengurus_barang || '-'}</span></div>
                             </div>
                         </div>
                         
-                        <!-- Kondisi Terkini -->
                         <div class="col-span-2 bg-gray-50 rounded-lg p-3 border border-gray-200">
                             <p class="text-[10px] uppercase tracking-wider text-gray-600 font-bold mb-2 flex items-center gap-1">
                                 <i class="fas fa-heart-pulse"></i> Kondisi Terkini
@@ -1057,24 +1017,12 @@ function showDetail(id) {
                                         <i class="fas ${kondisiStyle.icon} mr-1"></i>${d.kondisi_terkini || 'Belum Dicek'}
                                     </span>
                                 </div>
-                                <div class="flex justify-between">
-                                    <span class="text-gray-600">Terakhir Dicek</span>
-                                    <span class="font-semibold text-gray-800">${formatDate(d.tgl_cek_kondisi)}</span>
-                                </div>
-                                <div class="flex justify-between">
-                                    <span class="text-gray-600">Petugas</span>
-                                    <span class="font-semibold text-gray-800">${d.petugas_cek || '-'}</span>
-                                </div>
-                                ${d.ket_kondisi ? `
-                                <div class="pt-1.5 border-t border-gray-200">
-                                    <p class="text-gray-600 mb-1">Keterangan:</p>
-                                    <p class="text-gray-800 italic">${d.ket_kondisi}</p>
-                                </div>
-                                ` : ''}
+                                <div class="flex justify-between"><span class="text-gray-600">Terakhir Dicek</span><span class="font-semibold text-gray-800">${formatDate(d.tgl_cek_kondisi)}</span></div>
+                                <div class="flex justify-between"><span class="text-gray-600">Petugas</span><span class="font-semibold text-gray-800">${d.petugas_cek || '-'}</span></div>
+                                ${d.ket_kondisi ? `<div class="pt-1.5 border-t border-gray-200"><p class="text-gray-600 mb-1">Keterangan:</p><p class="text-gray-800 italic">${d.ket_kondisi}</p></div>` : ''}
                             </div>
                         </div>
                         
-                        <!-- Statistik -->
                         <div class="col-span-2 grid grid-cols-2 gap-2">
                             <div class="bg-indigo-50 rounded-lg p-2.5 border border-indigo-100 text-center">
                                 <i class="fas fa-history text-indigo-500 text-lg mb-1"></i>
@@ -1088,7 +1036,6 @@ function showDetail(id) {
                             </div>
                         </div>
                         
-                        <!-- Info Tambahan -->
                         ${(d.judul || d.pencipta || d.keterangan) ? `
                         <div class="col-span-2 bg-gray-50 rounded-lg p-3 border border-gray-200">
                             <p class="text-[10px] uppercase tracking-wider text-gray-600 font-bold mb-2 flex items-center gap-1">
@@ -1101,10 +1048,8 @@ function showDetail(id) {
                             </div>
                         </div>
                         ` : ''}
-                        
                     </div>
                 </div>
-                
                 <style>
                     .custom-modal-scroll::-webkit-scrollbar { width: 6px; }
                     .custom-modal-scroll::-webkit-scrollbar-track { background: #f1f1f1; border-radius: 10px; }
@@ -1112,30 +1057,28 @@ function showDetail(id) {
                 </style>
             `;
             
-            // Tampilkan modal
+            // Cek hak akses untuk tombol Edit & Hapus
+            const canEdit = <?= canUpdate() ? 'true' : 'false' ?>;
+            const canDelete = <?= canDelete() ? 'true' : 'false' ?>;
+            
             Swal.fire({
                 title: '<i class="fas fa-eye text-primary mr-2"></i> Detail Aset',
                 html: html,
                 width: '650px',
                 showCancelButton: true,
-                showConfirmButton: true,
+                showConfirmButton: canEdit,
                 confirmButtonText: '<i class="fas fa-edit mr-1"></i> Edit',
                 cancelButtonText: '<i class="fas fa-times mr-1"></i> Tutup',
                 confirmButtonColor: '#d97706',
                 cancelButtonColor: '#64748b',
-                showDenyButton: true,
+                showDenyButton: canDelete,
                 denyButtonText: '<i class="fas fa-trash mr-1"></i> Hapus',
                 denyButtonColor: '#dc2626',
-                customClass: {
-                    popup: 'rounded-2xl',
-                    title: 'text-primary font-bold'
-                }
+                customClass: { popup: 'rounded-2xl', title: 'text-primary font-bold' }
             }).then((result) => {
                 if (result.isConfirmed) {
-                    // Edit
                     window.location.href = `edit.php?id=${id}`;
                 } else if (result.isDenied) {
-                    // Hapus
                     Swal.fire({
                         title: 'Hapus Data?',
                         html: `
