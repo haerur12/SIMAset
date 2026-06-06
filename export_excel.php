@@ -1,8 +1,14 @@
 ﻿<?php
 require 'config.php';
+// Load Composer autoload (needed for PDF export)
+require_once __DIR__ . '/vendor/autoload.php';
+
+use Dompdf\Dompdf;
+use Dompdf\Options;
 
 $current_page = basename($_SERVER['PHP_SELF']);
 $download = isset($_GET['download']) && $_GET['download'] == '1';
+$download_pdf = isset($_GET['download_pdf']) && $_GET['download_pdf'] == '1';
 
 if(!isset($_SESSION['login'])) {
     header("Location: index.php");
@@ -18,7 +24,7 @@ $total_nilai = mysqli_query($conn, "SELECT SUM(total) as total FROM inventaris")
 // Search untuk Preview
 $search = isset($_GET['search']) ? mysqli_real_escape_string($conn, $_GET['search']) : '';
 $where = "";
-if($search && !$download) {
+if($search && !$download && !$download_pdf) {
     $where = "WHERE spesifikasi_nama_barang LIKE '%$search%' OR nama_barang_108 LIKE '%$search%'";
 }
 
@@ -27,7 +33,254 @@ $result = mysqli_query($conn, "SELECT * FROM inventaris $where ORDER BY created_
 $total_records = mysqli_num_rows($result);
 
 // Hitung estimasi ukuran file
-$estimated_size = ($total_records * 2.5) + 15; // KB (estimasi per row ~2.5KB + header 15KB)
+$estimated_size_excel = ($total_records * 2.5) + 15;
+$estimated_size_pdf = ($total_records * 3.5) + 50;
+
+// ============================================
+// ✅ EXPORT PDF MODE
+// ============================================
+if($download_pdf) {
+    // Setup Dompdf
+    $options = new Options();
+    $options->set('isHtml5ParserEnabled', true);
+    $options->set('isRemoteEnabled', true);
+    $options->set('defaultFont', 'Arial');
+    $dompdf = new Dompdf($options);
+    
+    // Hitung grand total
+    $grand_total = 0;
+    $data_rows = [];
+    mysqli_data_seek($result, 0);
+    while($row = mysqli_fetch_assoc($result)) {
+        $grand_total += $row['total'];
+        $data_rows[] = $row;
+    }
+    
+    // Generate HTML untuk PDF
+    $html = '<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <style>
+        @page {
+            margin: 1.5cm 1cm;
+            size: A4 landscape;
+        }
+        body {
+            font-family: Arial, sans-serif;
+            font-size: 10px;
+            line-height: 1.3;
+            color: #333;
+        }
+        .header {
+            text-align: center;
+            margin-bottom: 15px;
+            border-bottom: 3px solid #1a365d;
+            padding-bottom: 10px;
+        }
+        .header h1 {
+            margin: 0 0 3px 0;
+            font-size: 16px;
+            color: #1a365d;
+            text-transform: uppercase;
+        }
+        .header h2 {
+            margin: 0 0 3px 0;
+            font-size: 13px;
+            color: #2c5282;
+        }
+        .header p {
+            margin: 2px 0;
+            font-size: 9px;
+            color: #666;
+        }
+        .stats-box {
+            background-color: #f0f4f8;
+            padding: 8px;
+            border-radius: 4px;
+            margin-bottom: 10px;
+            border-left: 3px solid #1a365d;
+            font-size: 9px;
+        }
+        .stats-box strong {
+            color: #1a365d;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 8px;
+        }
+        table th {
+            background-color: #1a365d;
+            color: white;
+            padding: 5px 3px;
+            text-align: left;
+            font-size: 8px;
+            border: 1px solid #0f2744;
+        }
+        table td {
+            padding: 4px 3px;
+            border: 1px solid #ddd;
+            vertical-align: top;
+        }
+        table tr:nth-child(even) td {
+            background-color: #f8fafc;
+        }
+        .text-center { text-align: center; }
+        .text-right { text-align: right; }
+        .wrap { word-wrap: break-word; max-width: 120px; }
+        .badge {
+            display: inline-block;
+            padding: 2px 5px;
+            border-radius: 2px;
+            font-size: 7px;
+            font-weight: bold;
+            color: white;
+        }
+        .badge-pemerintah { background-color: #1a365d; }
+        .badge-sekolah { background-color: #d69e2e; }
+        .badge-bos { background-color: #38a169; }
+        .badge-dak { background-color: #3182ce; }
+        .badge-apbd { background-color: #e53e3e; }
+        .grand-total {
+            font-weight: bold;
+            background-color: #e2e8f0 !important;
+            font-size: 9px;
+        }
+        .footer {
+            margin-top: 20px;
+            text-align: right;
+            font-size: 9px;
+        }
+        .signature-box {
+            display: inline-block;
+            text-align: center;
+            min-width: 180px;
+            margin-top: 30px;
+        }
+        .signature-line {
+            border-top: 1px solid #333;
+            margin-top: 40px;
+            padding-top: 3px;
+        }
+        .watermark {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%) rotate(-45deg);
+            font-size: 70px;
+            color: rgba(26, 54, 93, 0.04);
+            z-index: -1;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+    <div class="watermark">INVENTARIS</div>
+    
+    <div class="header">
+        <h1>SDN CURUG 01</h1>
+        <h2>Laporan Inventaris Aset Sekolah</h2>
+        <p>Bojongsari | Tahun ' . date('Y') . '</p>
+        <p>Dicetak pada: ' . date("d F Y, H:i") . ' WIB</p>
+    </div>
+    
+    <div class="stats-box">
+        <strong>Total Data:</strong> ' . number_format($total_records) . ' jenis aset | 
+        <strong>Total Nilai:</strong> ' . formatRupiah($total_nilai) . ' | 
+        <strong>Filter:</strong> ' . ($search ? '"' . $search . '"' : 'Semua') . '
+    </div>
+    
+    <table>
+        <thead>
+            <tr>
+                <th width="3%">No</th>
+                <th width="8%">Sumber</th>
+                <th width="7%">Kode Lokasi</th>
+                <th width="10%">Nama Unit</th>
+                <th width="7%">Kode Barang</th>
+                <th width="13%">Nama Barang</th>
+                <th width="13%">Spesifikasi</th>
+                <th width="5%">Satuan</th>
+                <th width="4%">Jumlah</th>
+                <th width="8%">Harga Satuan</th>
+                <th width="9%">Total</th>
+                <th>No Kontrak</th>
+                <th>Tgl Kontrak</th>
+                <th>No BAST</th>
+                <th>Tgl BAST</th>
+                <th>PPK</th>
+                <th>Pengurus</th>
+                <th>Keterangan</th>
+            </tr>
+        </thead>
+        <tbody>';
+    
+    $no = 1;
+    foreach($data_rows as $row) {
+        $badge_class = 'badge-pemerintah';
+        switch($row['sumber_pengadaan']) {
+            case 'Sekolah': $badge_class = 'badge-sekolah'; break;
+            case 'BOS': $badge_class = 'badge-bos'; break;
+            case 'DAK': $badge_class = 'badge-dak'; break;
+            case 'APBD': $badge_class = 'badge-apbd'; break;
+        }
+        
+        $html .= '
+            <tr>
+                <td class="text-center">' . $no++ . '</td>
+                <td><span class="badge ' . $badge_class . '">' . htmlspecialchars($row['sumber_pengadaan']) . '</span></td>
+                <td>' . htmlspecialchars($row['kode_lokasi']) . '</td>
+                <td class="wrap">' . htmlspecialchars($row['nama_unit_lokasi']) . '</td>
+                <td class="text-center">' . htmlspecialchars($row['kode_barang_108']) . '</td>
+                <td class="wrap"><strong>' . htmlspecialchars($row['nama_barang_108']) . '</strong></td>
+                <td class="wrap">' . htmlspecialchars($row['spesifikasi_nama_barang']) . '</td>
+                <td class="text-center">' . htmlspecialchars($row['satuan']) . '</td>
+                <td class="text-center">' . $row['jumlah'] . '</td>
+                <td class="text-right">Rp ' . number_format($row['harga_satuan'], 0, ',', '.') . '</td>
+                <td class="text-right"><strong>Rp ' . number_format($row['total'], 0, ',', '.') . '</strong></td>
+                <td>' . htmlspecialchars($row['no_dokumen_kontrak']) . '</td>
+                <td class="text-center">' . ($row['tanggal_kontrak'] ? date('d/m/Y', strtotime($row['tanggal_kontrak'])) : '-') . '</td>
+                <td>' . htmlspecialchars($row['no_bast']) . '</td>
+                <td class="text-center">' . ($row['tanggal_bast'] ? date('d/m/Y', strtotime($row['tanggal_bast'])) : '-') . '</td>
+                <td class="wrap">' . htmlspecialchars($row['nama_ppk']) . '</td>
+                <td class="wrap">' . htmlspecialchars($row['nama_pengurus_barang']) . '</td>
+                <td class="wrap">' . htmlspecialchars($row['keterangan']) . '</td>
+            </tr>';
+    }
+    
+    $html .= '
+            <tr class="grand-total">
+                <td colspan="10" class="text-right">GRAND TOTAL:</td>
+                <td class="text-right">Rp ' . number_format($grand_total, 0, ',', '.') . '</td>
+                <td colspan="6"></td>
+            </tr>
+        </tbody>
+    </table>
+    
+    <div class="footer">
+        <div class="signature-box">
+            <p>Mengetahui,</p>
+            <p>Kepala Sekolah SDN Curug 01</p>
+            <div class="signature-line">
+                <p><strong>(_________________)</strong></p>
+                <p>NIP. -</p>
+            </div>
+        </div>
+    </div>
+</body>
+</html>';
+    
+    // Load HTML ke Dompdf
+    $dompdf->loadHtml($html);
+    $dompdf->setPaper('A4', 'landscape');
+    $dompdf->render();
+    
+    // Download PDF
+    $filename = "Laporan_Inventaris_SDN_Curug01_" . date("Y-m-d") . ($search ? "_" . preg_replace('/[^a-zA-Z0-9]/', '_', $search) : "") . ".pdf";
+    $dompdf->stream($filename, array("Attachment" => true));
+    exit;
+}
 
 // Header Excel jika download
 if($download) {
@@ -148,6 +401,8 @@ if($download) {
         .excel-badge-pemerintah { background-color: #1a365d; }
         .excel-badge-sekolah { background-color: #d69e2e; }
         .excel-badge-bos { background-color: #38a169; }
+        .excel-badge-dak { background-color: #3182ce; }
+        .excel-badge-apbd { background-color: #e53e3e; }
         
         /* Grand total row */
         .grand-total-row {
@@ -185,11 +440,6 @@ if($download) {
         .download-btn:hover::before {
             left: 100%;
         }
-        
-        /* File type indicator */
-        .file-indicator {
-            background: linear-gradient(135deg, #107c41 0%, #0d5c30 100%);
-        }
     </style>
 </head>
 
@@ -210,7 +460,7 @@ if($download) {
          style="display: none;"></div>
     
     <!-- Sidebar -->
-   <?php include 'sidebar.php'; ?>
+    <?php include 'sidebar.php'; ?>
     
     <!-- Main Content -->
     <main class="flex-1 flex flex-col min-w-0 overflow-x-hidden">
@@ -225,11 +475,11 @@ if($download) {
                     <nav class="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400 mb-1">
                         <a href="dashboard.php" class="hover:text-primary">Dashboard</a>
                         <i class="fas fa-chevron-right text-[8px]"></i>
-                        <span class="text-primary font-semibold">Export Excel</span>
+                        <span class="text-primary font-semibold">Export Data</span>
                     </nav>
                     <h2 class="text-xl lg:text-2xl font-bold text-primary dark:text-white flex items-center gap-2">
-                        <i class="fas fa-file-excel text-emerald-600"></i>
-                        <span>Export Excel</span>
+                        <i class="fas fa-file-export text-primary"></i>
+                        <span>Export Data Inventaris</span>
                     </h2>
                 </div>
             </div>
@@ -250,55 +500,61 @@ if($download) {
         <!-- Content Area -->
         <div class="flex-1 p-4 lg:p-8 space-y-6 animate-fade-in">
             
-            <!-- Hero Download Section -->
-            <div class="bg-gradient-to-br from-emerald-500 via-green-600 to-emerald-700 rounded-2xl shadow-xl p-6 lg:p-8 text-white relative overflow-hidden">
+            <!-- ✅ Hero Download Section - DUAL FORMAT (Excel & PDF) -->
+            <div class="bg-gradient-to-br from-primary via-primary-light to-primary rounded-2xl shadow-xl p-6 lg:p-8 text-white relative overflow-hidden">
                 <div class="absolute top-0 right-0 w-64 h-64 bg-white/5 rounded-full -translate-y-32 translate-x-32"></div>
                 <div class="absolute bottom-0 left-0 w-48 h-48 bg-white/5 rounded-full translate-y-24 -translate-x-24"></div>
-                <div class="absolute top-1/2 right-10 hidden lg:block opacity-20">
-                    <i class="fas fa-file-excel text-[180px]"></i>
+                <div class="absolute top-1/2 right-10 hidden lg:block opacity-10">
+                    <i class="fas fa-file-export text-[180px]"></i>
                 </div>
                 
-                <div class="relative grid grid-cols-1 lg:grid-cols-3 gap-6 items-center">
-                    <div class="lg:col-span-2">
-                        <div class="flex items-center gap-3 mb-3">
-                            <div class="p-3 bg-white/20 backdrop-blur rounded-xl animate-bounce-soft">
-                                <i class="fas fa-file-excel text-2xl"></i>
-                            </div>
-                            <div>
-                                <h3 class="text-2xl lg:text-3xl font-bold">Export Data Inventaris</h3>
-                                <p class="text-sm text-white/90">Download data dalam format Microsoft Excel (.xls)</p>
-                            </div>
+                <div class="relative">
+                    <div class="flex items-center gap-3 mb-3">
+                        <div class="p-3 bg-white/20 backdrop-blur rounded-xl animate-bounce-soft">
+                            <i class="fas fa-file-export text-2xl"></i>
                         </div>
-                        <div class="flex flex-wrap gap-3 mt-4">
-                            <div class="flex items-center gap-2 px-3 py-1.5 bg-white/15 backdrop-blur rounded-lg text-xs">
-                                <i class="fas fa-database"></i>
-                                <span><strong><?= number_format($total_records) ?></strong> data</span>
-                            </div>
-                            <div class="flex items-center gap-2 px-3 py-1.5 bg-white/15 backdrop-blur rounded-lg text-xs">
-                                <i class="fas fa-weight-hanging"></i>
-                                <span>~<strong><?= number_format($estimated_size, 1) ?></strong> KB</span>
-                            </div>
-                            <div class="flex items-center gap-2 px-3 py-1.5 bg-white/15 backdrop-blur rounded-lg text-xs">
-                                <i class="fas fa-table-columns"></i>
-                                <span><strong>18</strong> kolom</span>
-                            </div>
-                            <div class="flex items-center gap-2 px-3 py-1.5 bg-white/15 backdrop-blur rounded-lg text-xs">
-                                <i class="fas fa-calendar"></i>
-                                <span><?= date('d M Y') ?></span>
-                            </div>
+                        <div>
+                            <h3 class="text-2xl lg:text-3xl font-bold">Export Data Inventaris</h3>
+                            <p class="text-sm text-white/90">Download data dalam format Excel atau PDF</p>
                         </div>
                     </div>
                     
-                    <div class="flex flex-col gap-3">
-                        <button @click="confirmDownload()" 
-                                class="download-btn w-full px-6 py-4 bg-white hover:bg-gray-50 text-emerald-700 rounded-xl shadow-lg hover:shadow-2xl transition-all flex items-center justify-center gap-3 font-bold text-base group">
-                            <i class="fas fa-download text-xl group-hover:animate-bounce"></i>
-                            <span>Download Excel</span>
+                    <div class="flex flex-wrap gap-3 mt-4 mb-6">
+                        <div class="flex items-center gap-2 px-3 py-1.5 bg-white/15 backdrop-blur rounded-lg text-xs">
+                            <i class="fas fa-database"></i>
+                            <span><strong><?= number_format($total_records) ?></strong> data</span>
+                        </div>
+                        <div class="flex items-center gap-2 px-3 py-1.5 bg-white/15 backdrop-blur rounded-lg text-xs">
+                            <i class="fas fa-table-columns"></i>
+                            <span><strong>18</strong> kolom</span>
+                        </div>
+                        <div class="flex items-center gap-2 px-3 py-1.5 bg-white/15 backdrop-blur rounded-lg text-xs">
+                            <i class="fas fa-calendar"></i>
+                            <span><?= date('d M Y') ?></span>
+                        </div>
+                    </div>
+                    
+                    <!-- ✅ DUAL DOWNLOAD BUTTONS -->
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        <!-- Excel Button -->
+                        <button @click="confirmDownloadExcel()" 
+                                class="download-btn w-full px-6 py-4 bg-emerald-500 hover:bg-emerald-600 text-white rounded-xl shadow-lg hover:shadow-2xl transition-all flex items-center justify-center gap-3 font-bold text-base group">
+                            <i class="fas fa-file-excel text-2xl group-hover:animate-bounce"></i>
+                            <div class="text-left">
+                                <div>Download Excel</div>
+                                <div class="text-xs font-normal opacity-80">Format .xls • ~<?= number_format($estimated_size_excel, 1) ?> KB</div>
+                            </div>
                         </button>
-                        <p class="text-xs text-white/80 text-center">
-                            <i class="fas fa-shield-halved mr-1"></i>
-                            File aman & terenkripsi
-                        </p>
+                        
+                        <!-- PDF Button -->
+                        <button @click="confirmDownloadPDF()" 
+                                class="download-btn w-full px-6 py-4 bg-red-500 hover:bg-red-600 text-white rounded-xl shadow-lg hover:shadow-2xl transition-all flex items-center justify-center gap-3 font-bold text-base group">
+                            <i class="fas fa-file-pdf text-2xl group-hover:animate-bounce"></i>
+                            <div class="text-left">
+                                <div>Download PDF</div>
+                                <div class="text-xs font-normal opacity-80">Format .pdf • ~<?= number_format($estimated_size_pdf, 1) ?> KB</div>
+                            </div>
+                        </button>
                     </div>
                 </div>
             </div>
@@ -329,7 +585,7 @@ if($download) {
                 <?php endforeach; ?>
             </div>
             
-            <!-- Info Box -->
+            <!-- ✅ Info Box - Dual Format -->
             <div class="bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-900/20 rounded-xl border border-blue-100 dark:border-blue-800 p-4 lg:p-5">
                 <div class="flex items-start gap-3">
                     <div class="p-2 bg-blue-500/10 rounded-lg flex-shrink-0">
@@ -342,11 +598,11 @@ if($download) {
                         <div class="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs text-blue-800 dark:text-blue-400">
                             <div class="flex items-start gap-2">
                                 <i class="fas fa-check text-blue-500 mt-0.5"></i>
-                                <span>Format file: Microsoft Excel (.xls)</span>
+                                <span><strong>Excel:</strong> Format .xls, kompatibel Excel 2007+</span>
                             </div>
                             <div class="flex items-start gap-2">
                                 <i class="fas fa-check text-blue-500 mt-0.5"></i>
-                                <span>Kompatibel dengan Excel 2007+</span>
+                                <span><strong>PDF:</strong> Format A4 Landscape, siap cetak</span>
                             </div>
                             <div class="flex items-start gap-2">
                                 <i class="fas fa-check text-blue-500 mt-0.5"></i>
@@ -354,7 +610,7 @@ if($download) {
                             </div>
                             <div class="flex items-start gap-2">
                                 <i class="fas fa-check text-blue-500 mt-0.5"></i>
-                                <span>Dilengkapi grand total otomatis</span>
+                                <span>Dilengkapi grand total & tanda tangan</span>
                             </div>
                         </div>
                     </div>
@@ -374,7 +630,7 @@ if($download) {
                             <div>
                                 <h3 class="text-lg font-bold text-gray-800 dark:text-white">Preview Data</h3>
                                 <p class="text-xs text-gray-500 dark:text-gray-400">
-                                    Tampilan yang akan diexport ke Excel
+                                    Tampilan yang akan diexport (Excel & PDF)
                                     <?php if($search): ?>
                                         • Filter: <strong class="text-primary">"<?= htmlspecialchars($search) ?>"</strong>
                                     <?php endif; ?>
@@ -459,8 +715,14 @@ if($download) {
                             $grand_total = 0;
                             while($row = mysqli_fetch_assoc($result)): 
                                 $grand_total += $row['total'];
-                                $badgeClass = $row['sumber_pengadaan'] == 'Pemerintah' ? 'excel-badge-pemerintah' : 
-                                             ($row['sumber_pengadaan'] == 'Sekolah' ? 'excel-badge-sekolah' : 'excel-badge-bos');
+                                $badgeClass = 'excel-badge-pemerintah';
+                                switch($row['sumber_pengadaan']) {
+                                    case 'Pemerintah': $badgeClass = 'excel-badge-pemerintah'; break;
+                                    case 'Sekolah': $badgeClass = 'excel-badge-sekolah'; break;
+                                    case 'BOS': $badgeClass = 'excel-badge-bos'; break;
+                                    case 'DAK': $badgeClass = 'excel-badge-dak'; break;
+                                    case 'APBD': $badgeClass = 'excel-badge-apbd'; break;
+                                }
                             ?>
                             <tr>
                                 <td class="text-center"><?= $no++ ?></td>
@@ -505,7 +767,7 @@ if($download) {
                     </table>
                 </div>
                 
-                <!-- Footer Info -->
+                <!-- ✅ Footer Info - Dual Download -->
                 <div class="p-4 lg:p-5 border-t border-gray-200 dark:border-gray-700 bg-gray-50/50 dark:bg-gray-900/30">
                     <div class="flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-gray-600 dark:text-gray-400">
                         <div class="flex items-center gap-4">
@@ -513,11 +775,18 @@ if($download) {
                             <span><i class="fas fa-columns mr-1"></i> 18 kolom</span>
                             <span><i class="fas fa-calculator mr-1"></i> Grand Total: <strong class="text-primary">Rp <?= number_format($grand_total, 0, ',', '.') ?></strong></span>
                         </div>
-                        <button @click="confirmDownload()" 
-                                class="px-4 py-2 bg-emerald-500 hover:bg-emerald-600 text-white rounded-lg transition-all flex items-center gap-2 text-xs font-semibold">
-                            <i class="fas fa-download"></i>
-                            Download Sekarang
-                        </button>
+                        <div class="flex items-center gap-2">
+                            <button @click="confirmDownloadExcel()" 
+                                    class="px-4 py-2 bg-emerald-500 hover:bg-emerald-600 text-white rounded-lg transition-all flex items-center gap-2 text-xs font-semibold">
+                                <i class="fas fa-file-excel"></i>
+                                Excel
+                            </button>
+                            <button @click="confirmDownloadPDF()" 
+                                    class="px-4 py-2 bg-red-500 hover:bg-red-600 text-white rounded-lg transition-all flex items-center gap-2 text-xs font-semibold">
+                                <i class="fas fa-file-pdf"></i>
+                                PDF
+                            </button>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -536,106 +805,133 @@ function exportApp() {
         sidebarOpen: false,
         
         init() {
-            // Welcome toast
             setTimeout(() => {
-                this.showToast('Preview siap! Klik Download untuk export', 'info');
+                this.showToast('Preview siap! Pilih format untuk download', 'info');
             }, 1000);
         },
         
-        confirmDownload() {
+        // ✅ KONFIRMASI DOWNLOAD EXCEL
+        confirmDownloadExcel() {
             const totalRecords = <?= $total_records ?>;
-            const estimatedSize = <?= $estimated_size ?>;
+            const estimatedSize = <?= $estimated_size_excel ?>;
             const searchFilter = '<?= addslashes($search) ?>';
             
             if (totalRecords === 0) {
                 Swal.fire({
                     icon: 'warning',
                     title: 'Tidak Ada Data',
-                    text: 'Tidak ada data yang bisa diexport. Silakan cek kembali filter pencarian.',
+                    text: 'Tidak ada data yang bisa diexport.',
                     confirmButtonColor: '#1a365d'
                 });
                 return;
             }
             
             Swal.fire({
-                title: '<i class="fas fa-file-excel text-emerald-500 mr-2"></i> Konfirmasi Download',
+                title: '<i class="fas fa-file-excel text-emerald-500 mr-2"></i> Download Excel',
                 html: `
                     <div class="text-left space-y-3 mt-4">
                         <div class="p-4 bg-gradient-to-br from-emerald-50 to-green-50 dark:from-emerald-900/20 dark:to-green-900/20 rounded-lg border border-emerald-200 dark:border-emerald-800">
                             <p class="text-xs font-semibold text-emerald-900 dark:text-emerald-300 mb-2 flex items-center gap-2">
-                                <i class="fas fa-info-circle"></i> Detail File
+                                <i class="fas fa-info-circle"></i> Detail File Excel
                             </p>
                             <div class="space-y-1.5 text-xs text-emerald-800 dark:text-emerald-400">
-                                <div class="flex justify-between">
-                                    <span><i class="fas fa-file-excel mr-2"></i> Format</span>
-                                    <strong>Microsoft Excel (.xls)</strong>
-                                </div>
-                                <div class="flex justify-between">
-                                    <span><i class="fas fa-database mr-2"></i> Jumlah Data</span>
-                                    <strong>${totalRecords.toLocaleString('id-ID')} baris</strong>
-                                </div>
-                                <div class="flex justify-between">
-                                    <span><i class="fas fa-weight-hanging mr-2"></i> Estimasi Ukuran</span>
-                                    <strong>~${estimatedSize.toFixed(1)} KB</strong>
-                                </div>
-                                <div class="flex justify-between">
-                                    <span><i class="fas fa-table-columns mr-2"></i> Kolom</span>
-                                    <strong>18 kolom</strong>
-                                </div>
-                                <div class="flex justify-between">
-                                    <span><i class="fas fa-calendar mr-2"></i> Tanggal Export</span>
-                                    <strong>${new Date().toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' })}</strong>
-                                </div>
-                                ${searchFilter ? `
-                                <div class="flex justify-between pt-1.5 border-t border-emerald-200 dark:border-emerald-800">
-                                    <span><i class="fas fa-filter mr-2"></i> Filter</span>
-                                    <strong class="truncate ml-2">"${searchFilter}"</strong>
-                                </div>
-                                ` : ''}
+                                <div class="flex justify-between"><span><i class="fas fa-file-excel mr-2"></i> Format</span><strong>Microsoft Excel (.xls)</strong></div>
+                                <div class="flex justify-between"><span><i class="fas fa-database mr-2"></i> Jumlah Data</span><strong>${totalRecords.toLocaleString('id-ID')} baris</strong></div>
+                                <div class="flex justify-between"><span><i class="fas fa-weight-hanging mr-2"></i> Estimasi Ukuran</span><strong>~${estimatedSize.toFixed(1)} KB</strong></div>
+                                <div class="flex justify-between"><span><i class="fas fa-table-columns mr-2"></i> Kolom</span><strong>18 kolom</strong></div>
+                                <div class="flex justify-between"><span><i class="fas fa-calendar mr-2"></i> Tanggal Export</span><strong>${new Date().toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' })}</strong></div>
+                                ${searchFilter ? `<div class="flex justify-between pt-1.5 border-t border-emerald-200 dark:border-emerald-800"><span><i class="fas fa-filter mr-2"></i> Filter</span><strong class="truncate ml-2">"${searchFilter}"</strong></div>` : ''}
+                            </div>
+                        </div>
+                    </div>
+                `,
+                showCancelButton: true,
+                confirmButtonColor: '#10b981',
+                cancelButtonColor: '#718096',
+                confirmButtonText: '<i class="fas fa-download mr-1"></i> Download Excel!',
+                cancelButtonText: 'Batal',
+                width: '500px'
+            }).then((result) => {
+                if (result.isConfirmed) {
+                    Swal.fire({
+                        title: 'Mempersiapkan File Excel...',
+                        html: '<div class="flex flex-col items-center gap-3 mt-3"><i class="fas fa-file-excel text-5xl text-emerald-500 animate-bounce"></i><p class="text-sm text-gray-600">Mohon tunggu...</p></div>',
+                        allowOutsideClick: false,
+                        showConfirmButton: false,
+                        timer: 1500,
+                        timerProgressBar: true
+                    }).then(() => {
+                        const searchParam = searchFilter ? `&search=${encodeURIComponent(searchFilter)}` : '';
+                        window.location.href = `export_excel.php?download=1${searchParam}`;
+                        setTimeout(() => this.showToast('File Excel berhasil didownload!', 'success'), 1000);
+                    });
+                }
+            });
+        },
+        
+        // ✅ KONFIRMASI DOWNLOAD PDF
+        confirmDownloadPDF() {
+            const totalRecords = <?= $total_records ?>;
+            const estimatedSize = <?= $estimated_size_pdf ?>;
+            const searchFilter = '<?= addslashes($search) ?>';
+            
+            if (totalRecords === 0) {
+                Swal.fire({
+                    icon: 'warning',
+                    title: 'Tidak Ada Data',
+                    text: 'Tidak ada data yang bisa diexport.',
+                    confirmButtonColor: '#1a365d'
+                });
+                return;
+            }
+            
+            Swal.fire({
+                title: '<i class="fas fa-file-pdf text-red-500 mr-2"></i> Download PDF',
+                html: `
+                    <div class="text-left space-y-3 mt-4">
+                        <div class="p-4 bg-gradient-to-br from-red-50 to-rose-50 dark:from-red-900/20 dark:to-rose-900/20 rounded-lg border border-red-200 dark:border-red-800">
+                            <p class="text-xs font-semibold text-red-900 dark:text-red-300 mb-2 flex items-center gap-2">
+                                <i class="fas fa-info-circle"></i> Detail File PDF
+                            </p>
+                            <div class="space-y-1.5 text-xs text-red-800 dark:text-red-400">
+                                <div class="flex justify-between"><span><i class="fas fa-file-pdf mr-2"></i> Format</span><strong>PDF Document (.pdf)</strong></div>
+                                <div class="flex justify-between"><span><i class="fas fa-ruler-combined mr-2"></i> Ukuran Kertas</span><strong>A4 Landscape</strong></div>
+                                <div class="flex justify-between"><span><i class="fas fa-database mr-2"></i> Jumlah Data</span><strong>${totalRecords.toLocaleString('id-ID')} baris</strong></div>
+                                <div class="flex justify-between"><span><i class="fas fa-weight-hanging mr-2"></i> Estimasi Ukuran</span><strong>~${estimatedSize.toFixed(1)} KB</strong></div>
+                                <div class="flex justify-between"><span><i class="fas fa-table-columns mr-2"></i> Kolom</span><strong>18 kolom</strong></div>
+                                <div class="flex justify-between"><span><i class="fas fa-calendar mr-2"></i> Tanggal Export</span><strong>${new Date().toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' })}</strong></div>
+                                <div class="flex justify-between"><span><i class="fas fa-signature mr-2"></i> Tanda Tangan</span><strong>Ya (Kepala Sekolah)</strong></div>
+                                ${searchFilter ? `<div class="flex justify-between pt-1.5 border-t border-red-200 dark:border-red-800"><span><i class="fas fa-filter mr-2"></i> Filter</span><strong class="truncate ml-2">"${searchFilter}"</strong></div>` : ''}
                             </div>
                         </div>
                         
                         <div class="p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-100 dark:border-blue-800">
                             <p class="text-xs text-blue-800 dark:text-blue-300">
                                 <i class="fas fa-lightbulb text-blue-500 mr-1"></i>
-                                <strong>Tips:</strong> File akan otomatis ter-download ke folder Downloads Anda.
+                                <strong>Tips:</strong> PDF ini siap cetak dengan header sekolah & tanda tangan Kepala Sekolah.
                             </p>
                         </div>
                     </div>
                 `,
                 showCancelButton: true,
-                confirmButtonColor: '#107c41',
+                confirmButtonColor: '#ef4444',
                 cancelButtonColor: '#718096',
-                confirmButtonText: '<i class="fas fa-download mr-1"></i> Ya, Download!',
+                confirmButtonText: '<i class="fas fa-download mr-1"></i> Download PDF!',
                 cancelButtonText: 'Batal',
                 width: '500px'
             }).then((result) => {
                 if (result.isConfirmed) {
-                    // Show loading
                     Swal.fire({
-                        title: 'Mempersiapkan File...',
-                        html: `
-                            <div class="flex flex-col items-center gap-3 mt-3">
-                                <div class="relative">
-                                    <i class="fas fa-file-excel text-5xl text-emerald-500 animate-bounce"></i>
-                                    <i class="fas fa-spinner fa-spin text-2xl text-emerald-700 absolute -bottom-1 -right-1"></i>
-                                </div>
-                                <p class="text-sm text-gray-600 dark:text-gray-300">Mohon tunggu sebentar...</p>
-                            </div>
-                        `,
+                        title: 'Mempersiapkan File PDF...',
+                        html: '<div class="flex flex-col items-center gap-3 mt-3"><i class="fas fa-file-pdf text-5xl text-red-500 animate-bounce"></i><p class="text-sm text-gray-600">Mohon tunggu sebentar...</p></div>',
                         allowOutsideClick: false,
                         showConfirmButton: false,
-                        timer: 2000,
+                        timer: 2500,
                         timerProgressBar: true
                     }).then(() => {
-                        // Trigger download
                         const searchParam = searchFilter ? `&search=${encodeURIComponent(searchFilter)}` : '';
-                        window.location.href = `export_excel.php?download=1${searchParam}`;
-                        
-                        // Show success toast after delay
-                        setTimeout(() => {
-                            this.showToast('File berhasil didownload!', 'success');
-                        }, 1000);
+                        window.location.href = `export_excel.php?download_pdf=1${searchParam}`;
+                        setTimeout(() => this.showToast('File PDF berhasil didownload!', 'success'), 1000);
                     });
                 }
             });
@@ -687,13 +983,20 @@ function exportApp() {
 
 // Keyboard shortcuts
 document.addEventListener('keydown', (e) => {
-    // Ctrl/Cmd + D = Download
-    if ((e.ctrlKey || e.metaKey) && e.key === 'd') {
+    const app = document.querySelector('[x-data]').__x;
+    if (!app) return;
+    
+    // Ctrl+E = Download Excel
+    if ((e.ctrlKey || e.metaKey) && e.key === 'e') {
         e.preventDefault();
-        const app = document.querySelector('[x-data]').__x;
-        if (app) app.$data.confirmDownload();
+        app.$data.confirmDownloadExcel();
     }
-    // Ctrl/Cmd + K = Focus search
+    // Ctrl+P = Download PDF
+    if ((e.ctrlKey || e.metaKey) && e.key === 'p') {
+        e.preventDefault();
+        app.$data.confirmDownloadPDF();
+    }
+    // Ctrl+K = Focus search
     if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
         e.preventDefault();
         const searchInput = document.querySelector('input[name="search"]');
@@ -726,59 +1029,23 @@ document.addEventListener('keydown', (e) => {
     </xml>
     <![endif]-->
     <style>
-        .excel-header {
-            text-align: center;
-            padding: 15px;
-            background: #1a365d;
-            color: white;
-            font-family: Arial, sans-serif;
-        }
+        .excel-header { text-align: center; padding: 15px; background: #1a365d; color: white; font-family: Arial, sans-serif; }
         .excel-header h3 { margin: 0 0 5px 0; font-size: 18px; }
         .excel-header p { margin: 0; font-size: 12px; }
-        
-        table.excel {
-            border-collapse: collapse;
-            width: 100%;
-            font-family: Arial, sans-serif;
-            font-size: 11px;
-        }
-        table.excel th {
-            background-color: #1a365d;
-            color: white;
-            padding: 8px;
-            font-weight: bold;
-            border: 1px solid #0f2744;
-            text-align: center;
-        }
-        table.excel td {
-            padding: 6px 8px;
-            border: 1px solid #cbd5e0;
-            vertical-align: middle;
-        }
-        table.excel tr:nth-child(even) td {
-            background-color: #f7fafc;
-        }
+        table.excel { border-collapse: collapse; width: 100%; font-family: Arial, sans-serif; font-size: 11px; }
+        table.excel th { background-color: #1a365d; color: white; padding: 8px; font-weight: bold; border: 1px solid #0f2744; text-align: center; }
+        table.excel td { padding: 6px 8px; border: 1px solid #cbd5e0; vertical-align: middle; }
+        table.excel tr:nth-child(even) td { background-color: #f7fafc; }
         .text-center { text-align: center; }
         .text-right { text-align: right; }
         .wrap { white-space: normal; word-wrap: break-word; max-width: 180px; }
-        
-        .badge {
-            display: inline-block;
-            padding: 3px 8px;
-            border-radius: 3px;
-            font-size: 10px;
-            font-weight: bold;
-            color: white;
-        }
+        .badge { display: inline-block; padding: 3px 8px; border-radius: 3px; font-size: 10px; font-weight: bold; color: white; }
         .badge-pemerintah { background-color: #1a365d; }
         .badge-sekolah { background-color: #d69e2e; }
         .badge-bos { background-color: #38a169; }
-        
-        .grand-total {
-            font-weight: bold;
-            background-color: #e2e8f0 !important;
-            font-size: 12px;
-        }
+        .badge-dak { background-color: #3182ce; }
+        .badge-apbd { background-color: #e53e3e; }
+        .grand-total { font-weight: bold; background-color: #e2e8f0 !important; font-size: 12px; }
     </style>
 </head>
 <body>
@@ -817,8 +1084,14 @@ document.addEventListener('keydown', (e) => {
             $grand_total = 0;
             while($row = mysqli_fetch_assoc($result)): 
                 $grand_total += $row['total'];
-                $badgeClass = $row['sumber_pengadaan'] == 'Pemerintah' ? 'badge-pemerintah' : 
-                             ($row['sumber_pengadaan'] == 'Sekolah' ? 'badge-sekolah' : 'badge-bos');
+                $badgeClass = 'badge-pemerintah';
+                switch($row['sumber_pengadaan']) {
+                    case 'Pemerintah': $badgeClass = 'badge-pemerintah'; break;
+                    case 'Sekolah': $badgeClass = 'badge-sekolah'; break;
+                    case 'BOS': $badgeClass = 'badge-bos'; break;
+                    case 'DAK': $badgeClass = 'badge-dak'; break;
+                    case 'APBD': $badgeClass = 'badge-apbd'; break;
+                }
             ?>
             <tr>
                 <td class="text-center"><?= $no++ ?></td>
