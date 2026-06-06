@@ -11,9 +11,8 @@ if(!isset($_SESSION['login'])) {
     exit;
 }
 
-// ✅ UPDATE JUMLAH KONDISI ASET (INSERT or UPDATE)
+// ✅ UPDATE JUMLAH KONDISI ASET
 if(isset($_POST['update_jumlah_kondisi'])) {
-    // ✅ PROTEKSI: Hanya admin yang bisa update kondisi
     requireAccess('update', 'kondisi_aset.php');
     $inventaris_id = intval($_POST['inventaris_id']);
     $jumlah_baik = intval($_POST['jumlah_baik'] ?? 0);
@@ -24,22 +23,24 @@ if(isset($_POST['update_jumlah_kondisi'])) {
     $petugas = mysqli_real_escape_string($conn, $_SESSION['nama_lengkap'] ?? 'Admin');
     $tanggal_cek = date('Y-m-d');
     
-    // Validasi
     $total = $jumlah_baik + $jumlah_rusak_ringan + $jumlah_rusak_berat + $jumlah_perbaikan;
     if($total == 0) {
         header("Location: kondisi_aset.php?detail_id=$inventaris_id&action=empty");
         exit;
     }
     
-    // Tentukan kondisi utama
-    $kondisi_utama = 'Baik';
-    $max = $jumlah_baik;
+    // ✅ LOGIKA BARU: Prioritas kerusakan (bukan mayoritas)
+    // Rusak Berat > Dalam Perbaikan > Rusak Ringan > Baik
+    if($jumlah_rusak_berat > 0) {
+        $kondisi_utama = 'Rusak Berat';
+    } elseif($jumlah_perbaikan > 0) {
+        $kondisi_utama = 'Dalam Perbaikan';
+    } elseif($jumlah_rusak_ringan > 0) {
+        $kondisi_utama = 'Rusak Ringan';
+    } else {
+        $kondisi_utama = 'Baik';
+    }
     
-    if($jumlah_rusak_ringan > $max) { $kondisi_utama = 'Rusak Ringan'; $max = $jumlah_rusak_ringan; }
-    if($jumlah_rusak_berat > $max) { $kondisi_utama = 'Rusak Berat'; $max = $jumlah_rusak_berat; }
-    if($jumlah_perbaikan > $max) { $kondisi_utama = 'Dalam Perbaikan'; $max = $jumlah_perbaikan; }
-    
-    // Buat detail JSON
     $detail_json = json_encode([
         'baik' => $jumlah_baik,
         'rusak_ringan' => $jumlah_rusak_ringan,
@@ -50,14 +51,10 @@ if(isset($_POST['update_jumlah_kondisi'])) {
     
     $keterangan_lengkap = "[DETAIL] Baik:$jumlah_baik | Rusak Ringan:$jumlah_rusak_ringan | Rusak Berat:$jumlah_rusak_berat | Perbaikan:$jumlah_perbaikan | Total:$total. " . $keterangan;
     
-    // ✅ CEK apakah sudah ada record untuk aset ini
     $check_existing = mysqli_query($conn, "SELECT id FROM kondisi_aset WHERE inventaris_id = $inventaris_id ORDER BY created_at DESC LIMIT 1");
-    
-    // Cek kolom detail_kondisi
     $check_col = mysqli_query($conn, "SHOW COLUMNS FROM kondisi_aset LIKE 'detail_kondisi'");
     $has_detail_col = mysqli_num_rows($check_col) > 0;
     
-    // ✅ UPDATE or INSERT
     if(mysqli_num_rows($check_existing) > 0) {
         $existing = mysqli_fetch_assoc($check_existing);
         $existing_id = $existing['id'];
@@ -101,7 +98,7 @@ if(isset($_POST['update_jumlah_kondisi'])) {
     }
 }
 
-// ✅ FILTER BERDASARKAN KATEGORI
+// ✅ FILTER
 $filter_kategori = isset($_GET['kategori']) ? mysqli_real_escape_string($conn, $_GET['kategori']) : '';
 $search = isset($_GET['search']) ? mysqli_real_escape_string($conn, $_GET['search']) : '';
 
@@ -114,14 +111,15 @@ if($search) {
 }
 $where = !empty($where_clauses) ? "WHERE " . implode(" AND ", $where_clauses) : "";
 
-// Query utama
+// ✅ QUERY UTAMA - Ambil detail_kondisi juga
 $query = "SELECT i.*, r.nama_ruangan, r.kode_ruangan, i.kategori_id, 
                  ks.kondisi AS kondisi_aset, ks.tanggal_cek AS last_tanggal_cek, 
-                 ks.keterangan AS last_keterangan, ks.petugas AS last_petugas
+                 ks.keterangan AS last_keterangan, ks.petugas AS last_petugas,
+                 ks.detail_kondisi AS detail_kondisi_json
           FROM inventaris i
           LEFT JOIN ruangan r ON i.ruangan_id = r.id
           LEFT JOIN (
-              SELECT k1.inventaris_id, k1.kondisi, k1.tanggal_cek, k1.keterangan, k1.petugas
+              SELECT k1.inventaris_id, k1.kondisi, k1.tanggal_cek, k1.keterangan, k1.petugas, k1.detail_kondisi
               FROM kondisi_aset k1
               INNER JOIN (
                   SELECT inventaris_id, MAX(created_at) AS max_created_at
@@ -133,25 +131,19 @@ $query = "SELECT i.*, r.nama_ruangan, r.kode_ruangan, i.kategori_id,
           ORDER BY 
             CASE ks.kondisi 
                 WHEN 'Rusak Berat' THEN 1 
-                WHEN 'Rusak Ringan' THEN 2 
-                WHEN 'Dalam Perbaikan' THEN 3 
+                WHEN 'Dalam Perbaikan' THEN 2
+                WHEN 'Rusak Ringan' THEN 3 
                 WHEN 'Baik' THEN 4 
                 ELSE 5 
             END,
             i.created_at DESC";
 $result = mysqli_query($conn, $query);
 
-// ============================================================
-// ✅ STATISTIK KONDISI - DIPERBAIKI (HANYA RECORD TERBARU)
-// ============================================================
-// Query ini hanya mengambil record TERBARU per inventaris_id
-// sehingga tidak ada duplikasi perhitungan
-
+// ✅ STATISTIK
 $check_detail_col = mysqli_query($conn, "SHOW COLUMNS FROM kondisi_aset LIKE 'detail_kondisi'");
 $has_detail_col = mysqli_num_rows($check_detail_col) > 0;
 
 if($has_detail_col) {
-    // ✅ QUERY YANG BENAR: Hanya ambil record terbaru per inventaris_id
     $stats_query = "SELECT 
         COALESCE(SUM(JSON_EXTRACT(detail_kondisi, '$.baik')), 0) as baik,
         COALESCE(SUM(JSON_EXTRACT(detail_kondisi, '$.rusak_ringan')), 0) as rusak_ringan,
@@ -178,9 +170,7 @@ if($has_detail_col) {
     $stat_perbaikan = intval($stats['perbaikan'] ?? 0);
     $total_unit_checked = intval($stats['total_unit'] ?? 0);
     $total_aset_dicek = intval($stats['total_aset_dicek'] ?? 0);
-    
 } else {
-    // Fallback untuk MySQL lama atau tanpa detail_kondisi
     $stats_query = "SELECT 
         COUNT(DISTINCT inventaris_id) as total_aset_dicek,
         SUM(CASE WHEN kondisi = 'Baik' THEN 1 ELSE 0 END) as baik,
@@ -206,19 +196,12 @@ if($has_detail_col) {
     $total_unit_checked = $stat_baik + $stat_rusak_ringan + $stat_rusak_berat + $stat_perbaikan;
 }
 
-// ✅ TOTAL SEMUA ASET DI INVENTARIS
 $total_aset_inventaris = mysqli_query($conn, "SELECT COUNT(*) as total FROM inventaris")->fetch_assoc()['total'];
 $total_belum_dicek = max(0, $total_aset_inventaris - $total_aset_dicek);
 
-// ✅ HEALTH SCORE: Persentase unit yang dalam kondisi BAIK
-// Rumus: (unit_baik / total_unit_dicek) × 100
-// Contoh: 180 unit baik dari 200 unit dicek = 90%
 $health_percent = $total_unit_checked > 0 ? round(($stat_baik / $total_unit_checked) * 100) : 0;
-
-// Batasi health_percent maksimal 100%
 $health_percent = min(100, max(0, $health_percent));
 
-// 7 Kategori Fixed
 $daftar_kategori = [
     'Buku & Bahan Ajar',
     'Alat Tulis Kantor (ATK)',
@@ -229,7 +212,6 @@ $daftar_kategori = [
     'Peralatan dan Sarana Pendukung Sekolah'
 ];
 
-// ✅ DETAIL ASET (untuk modal detail)
 $detail_aset = null;
 $riwayat_kondisi = null;
 if(isset($_GET['detail_id'])) {
@@ -239,6 +221,30 @@ if(isset($_GET['detail_id'])) {
     if($detail_aset) {
         $riwayat_kondisi = mysqli_query($conn, "SELECT * FROM kondisi_aset WHERE inventaris_id = $detail_id ORDER BY created_at DESC");
     }
+}
+
+// ✅ HELPER: Parse detail kondisi JSON
+function parseDetailKondisi($json_str) {
+    if(empty($json_str)) return null;
+    $data = json_decode($json_str, true);
+    if(!is_array($data)) return null;
+    return [
+        'baik' => intval($data['baik'] ?? 0),
+        'rusak_ringan' => intval($data['rusak_ringan'] ?? 0),
+        'rusak_berat' => intval($data['rusak_berat'] ?? 0),
+        'dalam_perbaikan' => intval($data['dalam_perbaikan'] ?? 0),
+        'total' => intval($data['total'] ?? 0)
+    ];
+}
+
+// ✅ HELPER: Hitung severity row (untuk highlighting)
+function getRowSeverity($detail) {
+    if(!$detail) return 'none';
+    if($detail['rusak_berat'] > 0) return 'critical';
+    if($detail['dalam_perbaikan'] > 0) return 'warning-blue';
+    if($detail['rusak_ringan'] > 0) return 'warning';
+    if($detail['baik'] > 0) return 'good';
+    return 'none';
 }
 ?>
 <!DOCTYPE html>
@@ -259,22 +265,8 @@ if(isset($_GET['detail_id'])) {
             darkMode: 'class',
             theme: {
                 extend: {
-                    colors: {
-                        primary: { DEFAULT: '#1a365d', dark: '#0f2744', light: '#2c5282' }
-                    },
-                    fontFamily: {
-                        sans: ['Segoe UI', 'Tahoma', 'Geneva', 'Verdana', 'sans-serif']
-                    },
-                    animation: {
-                        'fade-in': 'fadeIn 0.5s ease-in-out',
-                        'slide-up': 'slideUp 0.3s ease-out',
-                        'slide-in-left': 'slideInLeft 0.3s ease-out'
-                    },
-                    keyframes: {
-                        fadeIn: { '0%': { opacity: '0' }, '100%': { opacity: '1' } },
-                        slideUp: { '0%': { transform: 'translateY(20px)', opacity: '0' }, '100%': { transform: 'translateY(0)', opacity: '1' } },
-                        slideInLeft: { '0%': { transform: 'translateX(-100%)' }, '100%': { transform: 'translateX(0)' } }
-                    }
+                    colors: { primary: { DEFAULT: '#1a365d', dark: '#0f2744', light: '#2c5282' } },
+                    fontFamily: { sans: ['Segoe UI', 'Tahoma', 'Geneva', 'Verdana', 'sans-serif'] }
                 }
             }
         }
@@ -289,12 +281,7 @@ if(isset($_GET['detail_id'])) {
         * { transition: background-color 0.3s ease, color 0.2s ease, border-color 0.3s ease; }
         
         .stagger-item { animation: slideUp 0.5s ease-out backwards; }
-        .stagger-item:nth-child(1) { animation-delay: 0.1s; }
-        .stagger-item:nth-child(2) { animation-delay: 0.2s; }
-        .stagger-item:nth-child(3) { animation-delay: 0.3s; }
-        .stagger-item:nth-child(4) { animation-delay: 0.4s; }
-        
-        .badge-critical { animation: pulse 2s infinite; }
+        @keyframes slideUp { from { transform: translateY(20px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
         
         .filter-pill.active {
             background: linear-gradient(135deg, #1a365d, #2c5282);
@@ -302,13 +289,111 @@ if(isset($_GET['detail_id'])) {
             box-shadow: 0 4px 12px rgba(26, 54, 93, 0.3);
         }
         
-        .jumlah-input {
+        .jumlah-input { transition: all 0.2s; }
+        .jumlah-input:focus { transform: scale(1.02); box-shadow: 0 0 0 3px rgba(26, 54, 93, 0.1); }
+        
+        /* ✅ ROW HIGHLIGHTING berdasarkan severity */
+        .row-critical { 
+            background: linear-gradient(90deg, rgba(239, 68, 68, 0.08) 0%, transparent 100%) !important;
+            border-left: 3px solid #ef4444 !important;
+        }
+        .row-warning { 
+            background: linear-gradient(90deg, rgba(245, 158, 11, 0.08) 0%, transparent 100%) !important;
+            border-left: 3px solid #f59e0b !important;
+        }
+        .row-warning-blue { 
+            background: linear-gradient(90deg, rgba(59, 130, 246, 0.08) 0%, transparent 100%) !important;
+            border-left: 3px solid #3b82f6 !important;
+        }
+        .row-good { 
+            border-left: 3px solid #10b981 !important;
+        }
+        .dark .row-critical { background: linear-gradient(90deg, rgba(239, 68, 68, 0.15) 0%, transparent 100%) !important; }
+        .dark .row-warning { background: linear-gradient(90deg, rgba(245, 158, 11, 0.15) 0%, transparent 100%) !important; }
+        .dark .row-warning-blue { background: linear-gradient(90deg, rgba(59, 130, 246, 0.15) 0%, transparent 100%) !important; }
+        
+        /* ✅ MULTI-CONDITION BADGE */
+        .condition-stack {
+            display: flex;
+            flex-direction: column;
+            gap: 3px;
+            align-items: center;
+        }
+        .condition-main {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            padding: 4px 10px;
+            border-radius: 6px;
+            font-size: 11px;
+            font-weight: 700;
+            border: 1.5px solid;
+        }
+        .condition-secondary {
+            display: inline-flex;
+            align-items: center;
+            gap: 3px;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-size: 9px;
+            font-weight: 600;
+            opacity: 0.9;
+        }
+        
+        /* ✅ MINI PROGRESS BAR */
+        .mini-progress {
+            width: 100%;
+            height: 4px;
+            background: #e5e7eb;
+            border-radius: 2px;
+            overflow: hidden;
+            display: flex;
+            margin-top: 4px;
+        }
+        .dark .mini-progress { background: #374151; }
+        .mini-progress-segment {
+            height: 100%;
+            transition: width 0.5s ease;
+        }
+        
+        /* ✅ TOOLTIP */
+        .condition-tooltip {
+            position: relative;
+            cursor: help;
+        }
+        .condition-tooltip .tooltip-content {
+            visibility: hidden;
+            opacity: 0;
+            position: absolute;
+            bottom: calc(100% + 8px);
+            left: 50%;
+            transform: translateX(-50%);
+            background: #1f2937;
+            color: white;
+            padding: 10px 12px;
+            border-radius: 8px;
+            font-size: 11px;
+            white-space: nowrap;
+            z-index: 100;
             transition: all 0.2s;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.2);
         }
-        .jumlah-input:focus {
-            transform: scale(1.02);
-            box-shadow: 0 0 0 3px rgba(26, 54, 93, 0.1);
+        .condition-tooltip .tooltip-content::after {
+            content: '';
+            position: absolute;
+            top: 100%;
+            left: 50%;
+            transform: translateX(-50%);
+            border: 6px solid transparent;
+            border-top-color: #1f2937;
         }
+        .condition-tooltip:hover .tooltip-content {
+            visibility: visible;
+            opacity: 1;
+            bottom: calc(100% + 12px);
+        }
+        .dark .condition-tooltip .tooltip-content { background: #111827; }
+        .dark .condition-tooltip .tooltip-content::after { border-top-color: #111827; }
     </style>
 </head>
 
@@ -326,7 +411,6 @@ if(isset($_GET['detail_id'])) {
          @click="sidebarOpen = false"
          class="fixed inset-0 bg-black/50 z-40 lg:hidden"
          style="display: none;"></div>
-
 
     <?php include 'sidebar.php'; ?>
     
@@ -415,7 +499,6 @@ if(isset($_GET['detail_id'])) {
                                     <p class="text-lg font-bold text-amber-300"><?= $total_belum_dicek ?></p>
                                 </div>
                             </div>
-                            <!-- ✅ Info Tambahan: Total Unit -->
                             <div class="mt-2 text-xs text-white/70 text-center">
                                 <i class="fas fa-info-circle mr-1"></i>
                                 Total unit dicek: <strong><?= number_format($total_unit_checked) ?></strong> unit | 
@@ -449,7 +532,6 @@ if(isset($_GET['detail_id'])) {
                     ['Dalam Perbaikan', $stat_perbaikan, 'fa-wrench', 'from-blue-500 to-blue-600'],
                 ];
                 foreach($stats_cards as $idx => $stat): 
-                    // ✅ Persentase berdasarkan total unit yang dicek (bukan total aset)
                     $percentage = $total_unit_checked > 0 ? round(($stat[1] / $total_unit_checked) * 100) : 0;
                 ?>
                 <div class="stagger-item group relative bg-white dark:bg-gray-800 rounded-xl shadow-md hover:shadow-2xl transition-all duration-300 overflow-hidden border border-gray-100 dark:border-gray-700 hover:-translate-y-1">
@@ -473,6 +555,31 @@ if(isset($_GET['detail_id'])) {
                     <div class="h-1 bg-gradient-to-r <?= $stat[3] ?>"></div>
                 </div>
                 <?php endforeach; ?>
+            </div>
+            
+            <!-- ✅ LEGEND / KETERANGAN ROW COLOR -->
+            <div class="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-3 lg:p-4">
+                <div class="flex flex-wrap items-center gap-3 lg:gap-4 text-xs">
+                    <span class="font-semibold text-gray-700 dark:text-gray-300 flex items-center gap-1">
+                        <i class="fas fa-info-circle text-primary"></i> Keterangan Warna Baris:
+                    </span>
+                    <span class="flex items-center gap-1.5">
+                        <span class="w-3 h-3 rounded bg-red-500"></span>
+                        <span class="text-gray-600 dark:text-gray-400">Ada Rusak Berat</span>
+                    </span>
+                    <span class="flex items-center gap-1.5">
+                        <span class="w-3 h-3 rounded bg-blue-500"></span>
+                        <span class="text-gray-600 dark:text-gray-400">Dalam Perbaikan</span>
+                    </span>
+                    <span class="flex items-center gap-1.5">
+                        <span class="w-3 h-3 rounded bg-amber-500"></span>
+                        <span class="text-gray-600 dark:text-gray-400">Ada Rusak Ringan</span>
+                    </span>
+                    <span class="flex items-center gap-1.5">
+                        <span class="w-3 h-3 rounded bg-emerald-500"></span>
+                        <span class="text-gray-600 dark:text-gray-400">Semua Baik</span>
+                    </span>
+                </div>
             </div>
             
             <!-- Filter & Table Card -->
@@ -583,7 +690,7 @@ if(isset($_GET['detail_id'])) {
                                 <th class="px-4 py-4 text-left text-xs font-semibold uppercase tracking-wider">Nama Barang</th>
                                 <th class="px-4 py-4 text-left text-xs font-semibold uppercase tracking-wider">Kategori</th>
                                 <th class="px-4 py-4 text-left text-xs font-semibold uppercase tracking-wider">Lokasi</th>
-                                <th class="px-4 py-4 text-center text-xs font-semibold uppercase tracking-wider">Kondisi</th>
+                                <th class="px-4 py-4 text-center text-xs font-semibold uppercase tracking-wider min-w-[200px]">Kondisi</th>
                                 <th class="px-4 py-4 text-left text-xs font-semibold uppercase tracking-wider">Terakhir Dicek</th>
                                 <th class="px-4 py-4 text-center text-xs font-semibold uppercase tracking-wider">Aksi</th>
                             </tr>
@@ -602,31 +709,38 @@ if(isset($_GET['detail_id'])) {
                                 $no = 1;
                                 while($row = mysqli_fetch_assoc($result)): 
                                     $currentCondition = $row['kondisi_aset'] ?? 'Belum Dicek';
+                                    $detail = parseDetailKondisi($row['detail_kondisi_json'] ?? null);
+                                    $severity = getRowSeverity($detail);
+                                    
+                                    // Row class berdasarkan severity
+                                    $rowClass = '';
+                                    if($severity === 'critical') $rowClass = 'row-critical';
+                                    elseif($severity === 'warning-blue') $rowClass = 'row-warning-blue';
+                                    elseif($severity === 'warning') $rowClass = 'row-warning';
+                                    elseif($severity === 'good') $rowClass = 'row-good';
                                     
                                     $badgeClasses = [
-                                        'Baik' => 'bg-emerald-100 text-emerald-700 border-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-300 dark:border-emerald-800',
-                                        'Rusak Ringan' => 'bg-amber-100 text-amber-700 border-amber-200 dark:bg-amber-900/30 dark:text-amber-300 dark:border-amber-800',
-                                        'Rusak Berat' => 'bg-red-100 text-red-700 border-red-200 dark:bg-red-900/30 dark:text-red-300 dark:border-red-800 badge-critical',
-                                        'Dalam Perbaikan' => 'bg-blue-100 text-blue-700 border-blue-200 dark:bg-blue-900/30 dark:text-blue-300 dark:border-blue-800',
-                                        'Tidak Layak Pakai' => 'bg-gray-100 text-gray-700 border-gray-200 dark:bg-gray-700 dark:text-gray-300 dark:border-gray-600',
-                                        'Belum Dicek' => 'bg-gray-100 text-gray-500 border-gray-200 dark:bg-gray-700 dark:text-gray-400 dark:border-gray-600'
+                                        'Baik' => 'bg-emerald-100 text-emerald-700 border-emerald-300 dark:bg-emerald-900/30 dark:text-emerald-300 dark:border-emerald-700',
+                                        'Rusak Ringan' => 'bg-amber-100 text-amber-700 border-amber-300 dark:bg-amber-900/30 dark:text-amber-300 dark:border-amber-700',
+                                        'Rusak Berat' => 'bg-red-100 text-red-700 border-red-300 dark:bg-red-900/30 dark:text-red-300 dark:border-red-700',
+                                        'Dalam Perbaikan' => 'bg-blue-100 text-blue-700 border-blue-300 dark:bg-blue-900/30 dark:text-blue-300 dark:border-blue-700',
+                                        'Belum Dicek' => 'bg-gray-100 text-gray-500 border-gray-300 dark:bg-gray-700 dark:text-gray-400 dark:border-gray-600'
                                     ];
                                     $badgeClass = $badgeClasses[$currentCondition] ?? $badgeClasses['Belum Dicek'];
                                     
                                     $iconClasses = [
-                                        'Baik' => 'fa-check-circle text-emerald-500',
-                                        'Rusak Ringan' => 'fa-exclamation-triangle text-amber-500',
-                                        'Rusak Berat' => 'fa-times-circle text-red-500',
-                                        'Dalam Perbaikan' => 'fa-wrench text-blue-500',
-                                        'Tidak Layak Pakai' => 'fa-ban text-gray-500',
-                                        'Belum Dicek' => 'fa-question-circle text-gray-400'
+                                        'Baik' => 'fa-check-circle',
+                                        'Rusak Ringan' => 'fa-exclamation-triangle',
+                                        'Rusak Berat' => 'fa-times-circle',
+                                        'Dalam Perbaikan' => 'fa-wrench',
+                                        'Belum Dicek' => 'fa-question-circle'
                                     ];
-                                    $iconClass = $iconClasses[$currentCondition] ?? $iconClasses['Belum Dicek'];
+                                    $iconClass = $iconClasses[$currentCondition] ?? 'fa-question-circle';
                                     
                                     $tanggal_cek = $row['last_tanggal_cek'] ?? null;
                                     $days_ago = $tanggal_cek ? floor((time() - strtotime($tanggal_cek)) / 86400) : 999;
                             ?>
-                            <tr class="hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors group">
+                            <tr class="hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors group <?= $rowClass ?>">
                                 <td class="px-4 py-4 text-sm font-medium text-gray-600 dark:text-gray-300"><?= $no++ ?></td>
                                 <td class="px-4 py-4">
                                     <div class="flex items-center gap-3">
@@ -640,6 +754,11 @@ if(isset($_GET['detail_id'])) {
                                             <div class="text-xs text-gray-500 dark:text-gray-400 line-clamp-1 max-w-xs">
                                                 <?= htmlspecialchars(substr($row['spesifikasi_nama_barang'] ?? '-', 0, 40)) ?>
                                             </div>
+                                            <?php if($row['jumlah'] > 1): ?>
+                                            <div class="text-[10px] text-primary dark:text-primary-light font-semibold mt-0.5">
+                                                <i class="fas fa-cube mr-0.5"></i> <?= $row['jumlah'] ?> <?= $row['satuan'] ?>
+                                            </div>
+                                            <?php endif; ?>
                                         </div>
                                     </div>
                                 </td>
@@ -658,10 +777,89 @@ if(isset($_GET['detail_id'])) {
                                     </div>
                                 </td>
                                 <td class="px-4 py-4 text-center">
-                                    <span class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border <?= $badgeClass ?>">
-                                        <i class="fas <?= $iconClass ?> text-xs"></i>
-                                        <?= $currentCondition ?>
-                                    </span>
+                                    <!-- ✅ MULTI-CONDITION BADGE -->
+                                    <div class="condition-tooltip">
+                                        <div class="condition-stack">
+                                            <!-- Badge Utama (kondisi paling kritis) -->
+                                            <span class="condition-main <?= $badgeClass ?>">
+                                                <i class="fas <?= $iconClass ?> text-xs"></i>
+                                                <?= $currentCondition ?>
+                                            </span>
+                                            
+                                            <!-- Badge Sekunder (jika ada kondisi campuran) -->
+                                            <?php if($detail && $detail['total'] > 0): 
+                                                $secondary_badges = [];
+                                                if($detail['baik'] > 0 && $currentCondition !== 'Baik') {
+                                                    $secondary_badges[] = ['label' => $detail['baik'] . ' Baik', 'class' => 'bg-emerald-50 text-emerald-700 border border-emerald-200'];
+                                                }
+                                                if($detail['rusak_ringan'] > 0 && $currentCondition !== 'Rusak Ringan') {
+                                                    $secondary_badges[] = ['label' => $detail['rusak_ringan'] . ' R.Ringan', 'class' => 'bg-amber-50 text-amber-700 border border-amber-200'];
+                                                }
+                                                if($detail['rusak_berat'] > 0 && $currentCondition !== 'Rusak Berat') {
+                                                    $secondary_badges[] = ['label' => $detail['rusak_berat'] . ' R.Berat', 'class' => 'bg-red-50 text-red-700 border border-red-200'];
+                                                }
+                                                if($detail['dalam_perbaikan'] > 0 && $currentCondition !== 'Dalam Perbaikan') {
+                                                    $secondary_badges[] = ['label' => $detail['dalam_perbaikan'] . ' Perbaikan', 'class' => 'bg-blue-50 text-blue-700 border border-blue-200'];
+                                                }
+                                                
+                                                if(count($secondary_badges) > 0):
+                                            ?>
+                                            <div class="flex flex-wrap gap-1 justify-center">
+                                                <?php foreach(array_slice($secondary_badges, 0, 2) as $sb): ?>
+                                                <span class="condition-secondary <?= $sb['class'] ?>">
+                                                    <?= $sb['label'] ?>
+                                                </span>
+                                                <?php endforeach; ?>
+                                                <?php if(count($secondary_badges) > 2): ?>
+                                                <span class="condition-secondary bg-gray-100 text-gray-600 border border-gray-200">
+                                                    +<?= count($secondary_badges) - 2 ?>
+                                                </span>
+                                                <?php endif; ?>
+                                            </div>
+                                            <?php endif; ?>
+                                            
+                                            <!-- Mini Progress Bar -->
+                                            <div class="mini-progress" title="Distribusi kondisi">
+                                                <?php if($detail['total'] > 0): 
+                                                    $p_baik = ($detail['baik'] / $detail['total']) * 100;
+                                                    $p_ringan = ($detail['rusak_ringan'] / $detail['total']) * 100;
+                                                    $p_berat = ($detail['rusak_berat'] / $detail['total']) * 100;
+                                                    $p_perbaikan = ($detail['dalam_perbaikan'] / $detail['total']) * 100;
+                                                ?>
+                                                <?php if($p_baik > 0): ?><div class="mini-progress-segment bg-emerald-500" style="width: <?= $p_baik ?>%"></div><?php endif; ?>
+                                                <?php if($p_ringan > 0): ?><div class="mini-progress-segment bg-amber-500" style="width: <?= $p_ringan ?>%"></div><?php endif; ?>
+                                                <?php if($p_berat > 0): ?><div class="mini-progress-segment bg-red-500" style="width: <?= $p_berat ?>%"></div><?php endif; ?>
+                                                <?php if($p_perbaikan > 0): ?><div class="mini-progress-segment bg-blue-500" style="width: <?= $p_perbaikan ?>%"></div><?php endif; ?>
+                                                <?php endif; ?>
+                                            </div>
+                                            <?php endif; ?>
+                                        </div>
+                                        
+                                        <!-- Tooltip dengan detail lengkap -->
+                                        <?php if($detail && $detail['total'] > 0): ?>
+                                        <div class="tooltip-content">
+                                            <div class="font-bold mb-1 text-xs">📊 Breakdown Kondisi (<?= $detail['total'] ?> unit)</div>
+                                            <div class="space-y-0.5 text-[10px]">
+                                                <div class="flex justify-between gap-3">
+                                                    <span>✅ Baik:</span>
+                                                    <strong><?= $detail['baik'] ?> unit (<?= round(($detail['baik']/$detail['total'])*100) ?>%)</strong>
+                                                </div>
+                                                <div class="flex justify-between gap-3">
+                                                    <span>⚠️ Rusak Ringan:</span>
+                                                    <strong><?= $detail['rusak_ringan'] ?> unit (<?= round(($detail['rusak_ringan']/$detail['total'])*100) ?>%)</strong>
+                                                </div>
+                                                <div class="flex justify-between gap-3">
+                                                    <span>❌ Rusak Berat:</span>
+                                                    <strong><?= $detail['rusak_berat'] ?> unit (<?= round(($detail['rusak_berat']/$detail['total'])*100) ?>%)</strong>
+                                                </div>
+                                                <div class="flex justify-between gap-3">
+                                                    <span>🔧 Perbaikan:</span>
+                                                    <strong><?= $detail['dalam_perbaikan'] ?> unit (<?= round(($detail['dalam_perbaikan']/$detail['total'])*100) ?>%)</strong>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <?php endif; ?>
+                                    </div>
                                 </td>
                                 <td class="px-4 py-4">
                                     <div class="text-sm text-gray-700 dark:text-gray-300">
@@ -712,7 +910,7 @@ if(isset($_GET['detail_id'])) {
     </main>
 </div>
 
-<!-- ✅ MODAL: DETAIL KONDISI ASET -->
+<!-- ✅ MODAL: DETAIL KONDISI ASET (SAMA SEPERTI SEBELUMNYA) -->
 <div id="detailModal" class="fixed inset-0 bg-black/60 backdrop-blur-sm z-[1000] hidden items-center justify-center p-4" style="display: none;">
     <div class="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-hidden flex flex-col">
         <div class="p-5 border-b border-gray-200 dark:border-gray-700 bg-gradient-to-r from-blue-500 to-blue-600 text-white flex items-center justify-between">
@@ -1057,9 +1255,6 @@ function kondisiApp() {
                             <div class="w-full bg-gray-200 dark:bg-gray-600 rounded-full h-2">
                                 <div class="h-full rounded-full ${healthPercent >= 80 ? 'bg-emerald-500' : (healthPercent >= 60 ? 'bg-amber-500' : (healthPercent >= 40 ? 'bg-orange-500' : 'bg-red-500'))}" style="width: ${healthPercent}%"></div>
                             </div>
-                            <p class="text-xs text-gray-600 dark:text-gray-400 mt-2">
-                                Rumus: (${baik.toLocaleString()} unit baik / ${totalUnit.toLocaleString()} unit dicek) × 100
-                            </p>
                         </div>
                         
                         <div class="grid grid-cols-2 gap-3">
@@ -1088,22 +1283,10 @@ function kondisiApp() {
                         <div class="p-3 bg-gray-50 dark:bg-gray-700 rounded-lg">
                             <p class="text-xs font-bold text-gray-700 dark:text-gray-200 mb-2">Ringkasan</p>
                             <div class="space-y-1 text-xs">
-                                <div class="flex justify-between">
-                                    <span class="text-gray-600 dark:text-gray-300">Total jenis aset</span>
-                                    <span class="font-bold">${total}</span>
-                                </div>
-                                <div class="flex justify-between">
-                                    <span class="text-gray-600 dark:text-gray-300">Aset sudah dicek</span>
-                                    <span class="font-bold text-emerald-600">${dicek} (${total > 0 ? Math.round((dicek/total)*100) : 0}%)</span>
-                                </div>
-                                <div class="flex justify-between">
-                                    <span class="text-gray-600 dark:text-gray-300">Aset belum dicek</span>
-                                    <span class="font-bold text-amber-600">${belum}</span>
-                                </div>
-                                <div class="flex justify-between pt-1 border-t border-gray-200 dark:border-gray-600">
-                                    <span class="text-gray-600 dark:text-gray-300">Total unit dicek</span>
-                                    <span class="font-bold text-primary">${totalUnit.toLocaleString()} unit</span>
-                                </div>
+                                <div class="flex justify-between"><span>Total jenis aset</span><span class="font-bold">${total}</span></div>
+                                <div class="flex justify-between"><span>Aset sudah dicek</span><span class="font-bold text-emerald-600">${dicek} (${total > 0 ? Math.round((dicek/total)*100) : 0}%)</span></div>
+                                <div class="flex justify-between"><span>Aset belum dicek</span><span class="font-bold text-amber-600">${belum}</span></div>
+                                <div class="flex justify-between pt-1 border-t border-gray-200 dark:border-gray-600"><span>Total unit dicek</span><span class="font-bold text-primary">${totalUnit.toLocaleString()} unit</span></div>
                             </div>
                         </div>
                     </div>
@@ -1139,16 +1322,12 @@ function kondisiApp() {
 document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') {
         const modal = document.getElementById('detailModal');
-        if (modal && modal.style.display === 'flex') {
-            closeDetailModal();
-        }
+        if (modal && modal.style.display === 'flex') closeDetailModal();
     }
 });
 
 document.getElementById('detailModal')?.addEventListener('click', function(e) {
-    if (e.target === this) {
-        closeDetailModal();
-    }
+    if (e.target === this) closeDetailModal();
 });
 </script>
 
