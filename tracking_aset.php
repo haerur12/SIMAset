@@ -8,9 +8,8 @@ if(!isset($_SESSION['login'])) {
     exit;
 }
 
-// ✅ TAMBAH TRACKING
+// ✅ TAMBAH TRACKING MANUAL
 if(isset($_POST['tambah_tracking'])) {
-    // ✅ PROTEKSI: Hanya admin yang bisa tambah tracking
     requireAccess('create', 'tracking_aset.php');
     $inventaris_id = (int)$_POST['inventaris_id'];
     $tanggal = mysqli_real_escape_string($conn, $_POST['tanggal_tracking']);
@@ -43,6 +42,7 @@ if(isset($_POST['tambah_tracking'])) {
 
 // ✅ HAPUS TRACKING
 if(isset($_GET['hapus'])) {
+    requireAccess('delete', 'tracking_aset.php');
     $id = (int)$_GET['hapus'];
     $stmt = mysqli_prepare($conn, "DELETE FROM tracking_aset WHERE id = ?");
     mysqli_stmt_bind_param($stmt, "i", $id);
@@ -68,32 +68,49 @@ if($filter_jenis) {
     $where[] = "t.jenis_tracking = '$filter_jenis'";
 }
 if($search) {
-    $where[] = "(i.nama_barang_108 LIKE '%$search%' OR t.keterangan LIKE '%$search%' OR t.petugas LIKE '%$search%')";
+    $where[] = "(i.nama_barang_108 LIKE '%$search%' OR t.keterangan LIKE '%$search%' OR t.petugas LIKE '%$search%' OR p.peminjam LIKE '%$search%')";
 }
 $where_clause = $where ? "WHERE " . implode(' AND ', $where) : "";
 
 $query = "SELECT t.*, i.nama_barang_108, i.spesifikasi_nama_barang, i.kode_barang_108,
-                 r.nama_ruangan as current_ruangan
+                 r.nama_ruangan as current_ruangan,
+                 p.peminjam, p.status as status_peminjaman, p.tanggal_kembali_rencana
           FROM tracking_aset t 
           LEFT JOIN inventaris i ON t.inventaris_id = i.id 
           LEFT JOIN ruangan r ON i.ruangan_id = r.id
+          LEFT JOIN peminjaman_aset p ON t.peminjaman_id = p.id
           $where_clause 
           ORDER BY t.tanggal_tracking DESC, t.created_at DESC 
           LIMIT $start, $limit";
 
 $result = mysqli_query($conn, $query);
-$total_records = mysqli_query($conn, "SELECT COUNT(*) as total FROM tracking_aset t LEFT JOIN inventaris i ON t.inventaris_id = i.id $where_clause")->fetch_assoc()['total'];
+if (!$result) {
+    error_log("tracking_aset Query Error: " . mysqli_error($conn));
+    $result = mysqli_query($conn, "SELECT id FROM tracking_aset WHERE 0"); // empty result fallback
+}
+
+$countRes = mysqli_query($conn, "SELECT COUNT(*) as total FROM tracking_aset t LEFT JOIN inventaris i ON t.inventaris_id = i.id LEFT JOIN peminjaman_aset p ON t.peminjaman_id = p.id $where_clause");
+$total_records = $countRes ? (int)mysqli_fetch_assoc($countRes)['total'] : 0;
 $total_pages = ceil($total_records / $limit);
 
-// ✅ STATISTIK (single query optimized)
-$stats = mysqli_query($conn, "SELECT 
+// ✅ STATISTIK (dengan tracking otomatis dari peminjaman)
+$statsRes = mysqli_query($conn, "SELECT 
     COUNT(*) as total,
     SUM(CASE WHEN jenis_tracking = 'Pindah Ruangan' THEN 1 ELSE 0 END) as pindah,
     SUM(CASE WHEN jenis_tracking = 'Mutasi' THEN 1 ELSE 0 END) as mutasi,
     SUM(CASE WHEN jenis_tracking = 'Peminjaman' THEN 1 ELSE 0 END) as pinjam,
     SUM(CASE WHEN jenis_tracking = 'Pengembalian' THEN 1 ELSE 0 END) as kembali,
-    SUM(CASE WHEN jenis_tracking = 'Perbaikan' THEN 1 ELSE 0 END) as perbaikan
-    FROM tracking_aset")->fetch_assoc();
+    SUM(CASE WHEN jenis_tracking = 'Perpanjangan' THEN 1 ELSE 0 END) as perpanjang,
+    SUM(CASE WHEN jenis_tracking = 'Perbaikan' THEN 1 ELSE 0 END) as perbaikan,
+    SUM(CASE WHEN peminjaman_id IS NOT NULL THEN 1 ELSE 0 END) as auto_tracking
+    FROM tracking_aset");
+$stats = $statsRes ? mysqli_fetch_assoc($statsRes) : ['total'=>0,'pindah'=>0,'mutasi'=>0,'pinjam'=>0,'kembali'=>0,'perpanjang'=>0,'perbaikan'=>0,'auto_tracking'=>0];
+
+// ✅ Statistik Peminjaman Aktif (untuk widget)
+$spRes = mysqli_query($conn, "SELECT COUNT(*) as total FROM peminjaman_aset WHERE status IN ('dipinjam', 'terlambat')");
+$stat_peminjaman_aktif = $spRes ? (int)mysqli_fetch_assoc($spRes)['total'] : 0;
+$stRes = mysqli_query($conn, "SELECT COUNT(*) as total FROM peminjaman_aset WHERE status = 'terlambat' OR (status = 'dipinjam' AND tanggal_kembali_rencana < CURDATE())");
+$stat_peminjaman_terlambat = $stRes ? (int)mysqli_fetch_assoc($stRes)['total'] : 0;
 
 // Get list of ruangan for form
 $ruangan_list = mysqli_query($conn, "SELECT id, nama_ruangan, kode_ruangan FROM ruangan ORDER BY nama_ruangan ASC");
@@ -101,11 +118,12 @@ $ruangan_list = mysqli_query($conn, "SELECT id, nama_ruangan, kode_ruangan FROM 
 // Helper function for tracking style
 function getTrackingStyle($jenis) {
     $styles = [
-        'Pindah Ruangan' => ['icon' => 'fa-right-left', 'gradient' => 'from-emerald-500 to-green-600', 'bg' => 'bg-emerald-100 dark:bg-emerald-900/30', 'text' => 'text-emerald-700 dark:text-emerald-300', 'border' => 'border-emerald-200 dark:border-emerald-800', 'ring' => 'ring-emerald-500'],
-        'Mutasi' => ['icon' => 'fa-shuffle', 'gradient' => 'from-amber-500 to-orange-600', 'bg' => 'bg-amber-100 dark:bg-amber-900/30', 'text' => 'text-amber-700 dark:text-amber-300', 'border' => 'border-amber-200 dark:border-amber-800', 'ring' => 'ring-amber-500'],
-        'Peminjaman' => ['icon' => 'fa-hand-holding', 'gradient' => 'from-blue-500 to-indigo-600', 'bg' => 'bg-blue-100 dark:bg-blue-900/30', 'text' => 'text-blue-700 dark:text-blue-300', 'border' => 'border-blue-200 dark:border-blue-800', 'ring' => 'ring-blue-500'],
-        'Pengembalian' => ['icon' => 'fa-rotate-left', 'gradient' => 'from-purple-500 to-pink-600', 'bg' => 'bg-purple-100 dark:bg-purple-900/30', 'text' => 'text-purple-700 dark:text-purple-300', 'border' => 'border-purple-200 dark:border-purple-800', 'ring' => 'ring-purple-500'],
-        'Perbaikan' => ['icon' => 'fa-screwdriver-wrench', 'gradient' => 'from-red-500 to-rose-600', 'bg' => 'bg-red-100 dark:bg-red-900/30', 'text' => 'text-red-700 dark:text-red-300', 'border' => 'border-red-200 dark:border-red-800', 'ring' => 'ring-red-500'],
+        'Pindah Ruangan' => ['icon' => 'fa-right-left', 'gradient' => 'from-emerald-500 to-green-600', 'bg' => 'bg-emerald-100 dark:bg-emerald-900/30', 'text' => 'text-emerald-700 dark:text-emerald-300', 'border' => 'border-emerald-200 dark:border-emerald-800'],
+        'Mutasi' => ['icon' => 'fa-shuffle', 'gradient' => 'from-amber-500 to-orange-600', 'bg' => 'bg-amber-100 dark:bg-amber-900/30', 'text' => 'text-amber-700 dark:text-amber-300', 'border' => 'border-amber-200 dark:border-amber-800'],
+        'Peminjaman' => ['icon' => 'fa-hand-holding', 'gradient' => 'from-blue-500 to-indigo-600', 'bg' => 'bg-blue-100 dark:bg-blue-900/30', 'text' => 'text-blue-700 dark:text-blue-300', 'border' => 'border-blue-200 dark:border-blue-800'],
+        'Pengembalian' => ['icon' => 'fa-rotate-left', 'gradient' => 'from-purple-500 to-pink-600', 'bg' => 'bg-purple-100 dark:bg-purple-900/30', 'text' => 'text-purple-700 dark:text-purple-300', 'border' => 'border-purple-200 dark:border-purple-800'],
+        'Perpanjangan' => ['icon' => 'fa-calendar-plus', 'gradient' => 'from-sky-500 to-blue-600', 'bg' => 'bg-sky-100 dark:bg-sky-900/30', 'text' => 'text-sky-700 dark:text-sky-300', 'border' => 'border-sky-200 dark:border-sky-800'],
+        'Perbaikan' => ['icon' => 'fa-screwdriver-wrench', 'gradient' => 'from-red-500 to-rose-600', 'bg' => 'bg-red-100 dark:bg-red-900/30', 'text' => 'text-red-700 dark:text-red-300', 'border' => 'border-red-200 dark:border-red-800'],
     ];
     return $styles[$jenis] ?? $styles['Mutasi'];
 }
@@ -135,12 +153,8 @@ function formatTanggalLocal($tgl) {
             darkMode: 'class',
             theme: {
                 extend: {
-                    colors: {
-                        primary: { DEFAULT: '#1a365d', dark: '#0f2744', light: '#2c5282' }
-                    },
-                    fontFamily: {
-                        sans: ['Segoe UI', 'Tahoma', 'Geneva', 'Verdana', 'sans-serif']
-                    },
+                    colors: { primary: { DEFAULT: '#1a365d', dark: '#0f2744', light: '#2c5282' } },
+                    fontFamily: { sans: ['Segoe UI', 'Tahoma', 'Geneva', 'Verdana', 'sans-serif'] },
                     animation: {
                         'fade-in': 'fadeIn 0.5s ease-in-out',
                         'slide-up': 'slideUp 0.4s ease-out',
@@ -166,7 +180,6 @@ function formatTanggalLocal($tgl) {
         
         * { transition: background-color 0.3s ease, color 0.2s ease, border-color 0.3s ease; }
         
-        /* Timeline connector */
         .timeline-item { position: relative; }
         .timeline-item:not(:last-child)::before {
             content: '';
@@ -181,33 +194,39 @@ function formatTanggalLocal($tgl) {
             background: linear-gradient(to bottom, #4a5568, transparent);
         }
         
-        /* Flow arrow animation */
-        .flow-arrow {
-            animation: flowPulse 2s infinite;
-        }
+        .flow-arrow { animation: flowPulse 2s infinite; }
         @keyframes flowPulse {
             0%, 100% { transform: translateX(0); opacity: 1; }
             50% { transform: translateX(4px); opacity: 0.7; }
         }
         
-        /* Stagger animation */
         .stagger-item { animation: slideUp 0.5s ease-out backwards; }
         .stagger-item:nth-child(1) { animation-delay: 0.05s; }
         .stagger-item:nth-child(2) { animation-delay: 0.1s; }
         .stagger-item:nth-child(3) { animation-delay: 0.15s; }
         .stagger-item:nth-child(4) { animation-delay: 0.2s; }
         .stagger-item:nth-child(5) { animation-delay: 0.25s; }
-        .stagger-item:nth-child(6) { animation-delay: 0.3s; }
-        .stagger-item:nth-child(7) { animation-delay: 0.35s; }
-        .stagger-item:nth-child(8) { animation-delay: 0.4s; }
-        .stagger-item:nth-child(9) { animation-delay: 0.45s; }
-        .stagger-item:nth-child(10) { animation-delay: 0.5s; }
         
-        /* Filter pill active */
         .filter-pill.active {
             background: linear-gradient(135deg, #1a365d, #2c5282);
             color: white;
             box-shadow: 0 4px 12px rgba(26, 54, 93, 0.3);
+        }
+        
+        /* Badge auto-tracking */
+        .badge-auto {
+            background: linear-gradient(135deg, #10b981, #059669);
+            color: white;
+            animation: pulse 2s infinite;
+        }
+        
+        /* Link peminjaman */
+        .link-peminjaman {
+            transition: all 0.2s;
+        }
+        .link-peminjaman:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
         }
     </style>
 </head>
@@ -216,25 +235,16 @@ function formatTanggalLocal($tgl) {
 
 <div class="flex min-h-screen" x-data="trackingApp()">
     
-    <!-- Mobile Overlay -->
     <div x-show="sidebarOpen" 
-         x-transition:enter="transition-opacity ease-linear duration-300"
-         x-transition:enter-start="opacity-0"
-         x-transition:enter-end="opacity-100"
-         x-transition:leave="transition-opacity ease-linear duration-300"
-         x-transition:leave-start="opacity-100"
-         x-transition:leave-end="opacity-0"
+         x-transition
          @click="sidebarOpen = false"
          class="fixed inset-0 bg-black/50 z-40 lg:hidden"
          style="display: none;"></div>
     
-    <!-- Sidebar -->
     <?php include 'sidebar.php'; ?>
     
-    <!-- Main Content -->
     <main class="flex-1 flex flex-col min-w-0 overflow-x-hidden">
         
-        <!-- Top Bar -->
         <header class="bg-white dark:bg-gray-800 shadow-sm px-4 lg:px-8 py-4 flex items-center justify-between sticky top-0 z-30">
             <div class="flex items-center gap-4">
                 <button @click="sidebarOpen = !sidebarOpen" class="lg:hidden p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700">
@@ -268,41 +278,99 @@ function formatTanggalLocal($tgl) {
             </div>
         </header>
         
-        <!-- Content Area -->
         <div class="flex-1 p-4 lg:p-8 space-y-6 animate-fade-in">
             
+            <!-- ✅ WIDGET PEMINJAMAN AKTIF (Integrasi dengan modul Peminjaman) -->
+            <?php if($stat_peminjaman_aktif > 0): ?>
+            <div class="bg-gradient-to-r from-blue-500 via-indigo-500 to-purple-600 rounded-2xl shadow-lg p-5 text-white relative overflow-hidden">
+                <div class="absolute top-0 right-0 w-64 h-64 bg-white/5 rounded-full -translate-y-32 translate-x-32"></div>
+                <div class="absolute bottom-0 left-0 w-48 h-48 bg-white/5 rounded-full translate-y-24 -translate-x-24"></div>
+                
+                <div class="relative flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+                    <div class="flex items-center gap-4">
+                        <div class="p-3 bg-white/20 backdrop-blur rounded-xl">
+                            <i class="fas fa-hand-holding-heart text-2xl"></i>
+                        </div>
+                        <div>
+                            <h3 class="font-bold text-lg">Peminjaman Aset Aktif</h3>
+                            <p class="text-sm text-white/80">Monitoring peminjaman dari modul Peminjaman</p>
+                        </div>
+                    </div>
+                    <div class="flex gap-3">
+                        <div class="text-center px-4 py-2 bg-white/15 backdrop-blur rounded-lg">
+                            <p class="text-2xl font-bold"><?= $stat_peminjaman_aktif ?></p>
+                            <p class="text-[10px] uppercase text-white/80">Aktif</p>
+                        </div>
+                        <?php if($stat_peminjaman_terlambat > 0): ?>
+                        <div class="text-center px-4 py-2 bg-red-500/30 backdrop-blur rounded-lg animate-pulse">
+                            <p class="text-2xl font-bold"><?= $stat_peminjaman_terlambat ?></p>
+                            <p class="text-[10px] uppercase text-white/80">Terlambat</p>
+                        </div>
+                        <?php endif; ?>
+                        <a href="peminjaman.php" 
+                           class="px-4 py-2 bg-white/20 hover:bg-white/30 backdrop-blur rounded-lg transition-all flex items-center gap-2 text-sm font-medium">
+                            <span>Buka Modul</span>
+                            <i class="fas fa-arrow-right"></i>
+                        </a>
+                    </div>
+                </div>
+            </div>
+            <?php endif; ?>
+            
             <!-- Statistics Cards -->
-            <div class="grid grid-cols-2 lg:grid-cols-5 gap-3 lg:gap-4">
+            <div class="grid grid-cols-2 lg:grid-cols-6 gap-3 lg:gap-4">
                 <?php 
                 $stats_cards = [
-                    ['Total Tracking', $stats['total'] ?? 0, 'fa-route', 'from-primary to-primary-light', 'Semua riwayat'],
-                    ['Pindah Ruangan', $stats['pindah'] ?? 0, 'fa-right-left', 'from-emerald-500 to-green-600', 'Perpindahan aset'],
-                    ['Mutasi', $stats['mutasi'] ?? 0, 'fa-shuffle', 'from-amber-500 to-orange-600', 'Mutasi aset'],
-                    ['Peminjaman', $stats['pinjam'] ?? 0, 'fa-hand-holding', 'from-blue-500 to-indigo-600', 'Aset dipinjam'],
-                    ['Perbaikan', $stats['perbaikan'] ?? 0, 'fa-screwdriver-wrench', 'from-red-500 to-rose-600', 'Sedang diperbaiki'],
+                    ['Total', $stats['total'] ?? 0, 'fa-route', 'from-primary to-primary-light', 'Semua riwayat'],
+                    ['Pindah', $stats['pindah'] ?? 0, 'fa-right-left', 'from-emerald-500 to-green-600', 'Perpindahan'],
+                    ['Peminjaman', $stats['pinjam'] ?? 0, 'fa-hand-holding', 'from-blue-500 to-indigo-600', 'Dari modul'],
+                    ['Pengembalian', $stats['kembali'] ?? 0, 'fa-rotate-left', 'from-purple-500 to-pink-600', 'Dari modul'],
+                    ['Perpanjangan', $stats['perpanjang'] ?? 0, 'fa-calendar-plus', 'from-sky-500 to-blue-600', 'Dari modul'],
+                    ['Perbaikan', $stats['perbaikan'] ?? 0, 'fa-screwdriver-wrench', 'from-red-500 to-rose-600', 'Maintenance'],
                 ];
                 foreach($stats_cards as $idx => $stat): ?>
                 <div class="stagger-item group relative bg-white dark:bg-gray-800 rounded-xl shadow-md hover:shadow-2xl transition-all duration-300 overflow-hidden border border-gray-100 dark:border-gray-700 hover:-translate-y-1 cursor-pointer"
                      @click="filterBy('<?= $idx === 0 ? '' : $stat[0] ?>')">
                     <div class="absolute inset-0 bg-gradient-to-br <?= $stat[3] ?> opacity-0 group-hover:opacity-5 transition-opacity"></div>
-                    <div class="relative p-4 lg:p-5">
+                    <div class="relative p-3 lg:p-4">
                         <div class="flex items-start justify-between mb-2">
-                            <div class="p-2.5 rounded-lg bg-gradient-to-br <?= $stat[3] ?> text-white shadow-lg">
-                                <i class="fas <?= $stat[2] ?> text-sm"></i>
+                            <div class="p-2 rounded-lg bg-gradient-to-br <?= $stat[3] ?> text-white shadow-lg">
+                                <i class="fas <?= $stat[2] ?> text-xs"></i>
                             </div>
                         </div>
-                        <p class="text-[10px] lg:text-xs uppercase tracking-wider text-gray-500 dark:text-gray-400 font-semibold mb-1 line-clamp-1"><?= $stat[0] ?></p>
-                        <h3 class="text-2xl lg:text-3xl font-bold text-gray-800 dark:text-white"><?= number_format($stat[1]) ?></h3>
-                        <p class="text-[10px] text-gray-400 dark:text-gray-500 mt-1 hidden sm:block"><?= $stat[4] ?></p>
+                        <p class="text-[10px] uppercase tracking-wider text-gray-500 dark:text-gray-400 font-semibold mb-1 line-clamp-1"><?= $stat[0] ?></p>
+                        <h3 class="text-xl lg:text-2xl font-bold text-gray-800 dark:text-white"><?= number_format($stat[1]) ?></h3>
                     </div>
                     <div class="h-1 bg-gradient-to-r <?= $stat[3] ?>"></div>
                 </div>
                 <?php endforeach; ?>
             </div>
             
+            <!-- Info Integrasi -->
+            <div class="bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-900/20 rounded-xl border border-blue-200 dark:border-blue-800 p-4">
+                <div class="flex items-start gap-3">
+                    <div class="p-2 bg-blue-500/10 rounded-lg flex-shrink-0">
+                        <i class="fas fa-link text-blue-600 dark:text-blue-400"></i>
+                    </div>
+                    <div class="flex-1">
+                        <h4 class="font-bold text-blue-900 dark:text-blue-300 mb-1 flex items-center gap-2">
+                            Terintegrasi dengan Modul Peminjaman
+                            <span class="text-[10px] px-2 py-0.5 bg-green-500 text-white rounded-full">AUTO</span>
+                        </h4>
+                        <p class="text-xs text-blue-800 dark:text-blue-400">
+                            Setiap aksi di modul <strong>Peminjaman</strong> (pinjam, kembalikan, perpanjang) otomatis tercatat di timeline tracking ini. 
+                            Tracking dengan badge <span class="badge-auto px-1.5 py-0.5 rounded text-[10px] font-bold">AUTO</span> dibuat otomatis oleh sistem.
+                        </p>
+                    </div>
+                    <a href="peminjaman.php" class="hidden sm:flex items-center gap-1 px-3 py-1.5 bg-blue-500 hover:bg-blue-600 text-white rounded-lg text-xs font-semibold transition-all">
+                        <span>Buka Modul</span>
+                        <i class="fas fa-external-link-alt text-[10px]"></i>
+                    </a>
+                </div>
+            </div>
+            
             <!-- Filter Bar -->
             <div class="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-4 lg:p-5">
-                <!-- Filter Pills -->
                 <div class="flex flex-wrap gap-2 mb-4">
                     <a href="tracking_aset.php<?= $search ? '?cari=' . urlencode($search) : '' ?>" 
                        class="filter-pill px-4 py-2 rounded-full text-xs font-semibold transition-all <?= !$filter_jenis ? 'active' : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-600' ?>">
@@ -310,11 +378,12 @@ function formatTanggalLocal($tgl) {
                     </a>
                     <?php 
                     $filter_types = [
-                        'Pindah Ruangan' => ['icon' => 'fa-right-left', 'color' => 'emerald'],
-                        'Mutasi' => ['icon' => 'fa-shuffle', 'color' => 'amber'],
-                        'Peminjaman' => ['icon' => 'fa-hand-holding', 'color' => 'blue'],
-                        'Pengembalian' => ['icon' => 'fa-rotate-left', 'color' => 'purple'],
-                        'Perbaikan' => ['icon' => 'fa-screwdriver-wrench', 'color' => 'red'],
+                        'Pindah Ruangan' => ['icon' => 'fa-right-left'],
+                        'Mutasi' => ['icon' => 'fa-shuffle'],
+                        'Peminjaman' => ['icon' => 'fa-hand-holding'],
+                        'Pengembalian' => ['icon' => 'fa-rotate-left'],
+                        'Perpanjangan' => ['icon' => 'fa-calendar-plus'],
+                        'Perbaikan' => ['icon' => 'fa-screwdriver-wrench'],
                     ];
                     foreach($filter_types as $type => $meta): ?>
                     <a href="?jenis=<?= urlencode($type) ?><?= $search ? '&cari=' . urlencode($search) : '' ?>" 
@@ -325,7 +394,6 @@ function formatTanggalLocal($tgl) {
                     <?php endforeach; ?>
                 </div>
                 
-                <!-- Search -->
                 <form method="GET" class="flex flex-col sm:flex-row gap-2">
                     <?php if($filter_jenis): ?>
                     <input type="hidden" name="jenis" value="<?= htmlspecialchars($filter_jenis) ?>">
@@ -334,7 +402,7 @@ function formatTanggalLocal($tgl) {
                         <i class="fas fa-search absolute left-4 top-1/2 -translate-y-1/2 text-gray-400"></i>
                         <input type="text" 
                                name="cari" 
-                               placeholder="Cari nama aset, keterangan, atau petugas..." 
+                               placeholder="Cari nama aset, peminjam, keterangan, atau petugas..." 
                                value="<?= htmlspecialchars($search) ?>"
                                class="w-full pl-11 pr-4 py-2.5 bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-all text-sm">
                     </div>
@@ -366,13 +434,13 @@ function formatTanggalLocal($tgl) {
             <!-- Timeline List -->
             <div class="space-y-4">
                 <?php if(mysqli_num_rows($result) > 0): 
-                    $no = $start + 1;
                     $last_date = null;
                     while($row = mysqli_fetch_assoc($result)): 
                         $style = getTrackingStyle($row['jenis_tracking']);
                         $current_date = date('Y-m-d', strtotime($row['tanggal_tracking']));
                         $show_date_header = ($current_date !== $last_date);
                         $last_date = $current_date;
+                        $is_auto = !empty($row['peminjaman_id']);
                 ?>
                 
                 <!-- Date Header -->
@@ -404,8 +472,13 @@ function formatTanggalLocal($tgl) {
                     <div class="flex gap-4">
                         <!-- Timeline Dot -->
                         <div class="flex flex-col items-center flex-shrink-0">
-                            <div class="w-14 h-14 rounded-full bg-gradient-to-br <?= $style['gradient'] ?> flex items-center justify-center text-white shadow-lg ring-4 ring-white dark:ring-gray-800">
+                            <div class="w-14 h-14 rounded-full bg-gradient-to-br <?= $style['gradient'] ?> flex items-center justify-center text-white shadow-lg ring-4 ring-white dark:ring-gray-800 relative">
                                 <i class="fas <?= $style['icon'] ?> text-lg"></i>
+                                <?php if($is_auto): ?>
+                                <span class="absolute -top-1 -right-1 w-5 h-5 bg-green-500 border-2 border-white dark:border-gray-800 rounded-full flex items-center justify-center">
+                                    <i class="fas fa-bolt text-[8px] text-white"></i>
+                                </span>
+                                <?php endif; ?>
                             </div>
                         </div>
                         
@@ -415,11 +488,36 @@ function formatTanggalLocal($tgl) {
                             <div class="p-4 lg:p-5 border-b border-gray-100 dark:border-gray-700 bg-gradient-to-r from-gray-50 to-transparent dark:from-gray-700/30">
                                 <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
                                     <div class="flex-1 min-w-0">
-                                        <div class="flex items-center gap-2 mb-1">
+                                        <div class="flex items-center gap-2 mb-1 flex-wrap">
                                             <span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-semibold <?= $style['bg'] ?> <?= $style['text'] ?> border <?= $style['border'] ?>">
                                                 <i class="fas <?= $style['icon'] ?> text-[10px]"></i>
                                                 <?= htmlspecialchars($row['jenis_tracking']) ?>
                                             </span>
+                                            
+                                            <!-- ✅ Badge AUTO jika dari modul peminjaman -->
+                                            <?php if($is_auto): ?>
+                                            <span class="badge-auto inline-flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-bold">
+                                                <i class="fas fa-bolt text-[8px]"></i>
+                                                AUTO
+                                            </span>
+                                            <?php endif; ?>
+                                            
+                                            <!-- ✅ Badge Status Peminjaman (jika terkait) -->
+                                            <?php if(!empty($row['status_peminjaman'])): 
+                                                $status_badge = [
+                                                    'dipinjam' => ['bg-blue-100 text-blue-700 border-blue-200', 'fa-clock', 'Dipinjam'],
+                                                    'terlambat' => ['bg-red-100 text-red-700 border-red-200', 'fa-exclamation-triangle', 'Terlambat'],
+                                                    'dikembalikan' => ['bg-emerald-100 text-emerald-700 border-emerald-200', 'fa-check-circle', 'Selesai'],
+                                                ];
+                                                $sb = $status_badge[$row['status_peminjaman']] ?? null;
+                                                if($sb):
+                                            ?>
+                                            <span class="inline-flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-semibold <?= $sb[0] ?> border">
+                                                <i class="fas <?= $sb[1] ?> text-[8px]"></i>
+                                                <?= $sb[2] ?>
+                                            </span>
+                                            <?php endif; endif; ?>
+                                            
                                             <span class="text-xs text-gray-400">
                                                 <i class="far fa-clock mr-1"></i>
                                                 <?= date('H:i', strtotime($row['created_at'] ?? 'now')) ?> WIB
@@ -434,11 +532,24 @@ function formatTanggalLocal($tgl) {
                                         </p>
                                         <?php endif; ?>
                                     </div>
-                                    <button @click="confirmDelete(<?= $row['id'] ?>, '<?= htmlspecialchars(addslashes($row['nama_barang_108'] ?? 'Aset')) ?>')"
-                                            class="self-start p-2 bg-red-100 hover:bg-red-500 text-red-600 hover:text-white rounded-lg transition-all flex-shrink-0"
-                                            title="Hapus">
-                                        <i class="fas fa-trash text-xs"></i>
-                                    </button>
+                                    <div class="flex items-center gap-1 flex-shrink-0">
+                                        <!-- ✅ Link ke Detail Peminjaman (jika terkait) -->
+                                        <?php if($is_auto): ?>
+                                        <a href="peminjaman.php?tab=semua&cari=<?= urlencode($row['peminjam'] ?? '') ?>" 
+                                           class="link-peminjaman p-2 bg-blue-100 hover:bg-blue-500 text-blue-600 hover:text-white rounded-lg transition-all"
+                                           title="Lihat Detail Peminjaman">
+                                            <i class="fas fa-hand-holding text-xs"></i>
+                                        </a>
+                                        <?php endif; ?>
+                                        
+                                        <?php if(canDelete()): ?>
+                                        <button @click="confirmDelete(<?= $row['id'] ?>, '<?= htmlspecialchars(addslashes($row['nama_barang_108'] ?? 'Aset')) ?>')"
+                                                class="p-2 bg-red-100 hover:bg-red-500 text-red-600 hover:text-white rounded-lg transition-all"
+                                                title="Hapus">
+                                            <i class="fas fa-trash text-xs"></i>
+                                        </button>
+                                        <?php endif; ?>
+                                    </div>
                                 </div>
                             </div>
                             
@@ -453,6 +564,12 @@ function formatTanggalLocal($tgl) {
                                         <p class="text-sm font-semibold text-gray-800 dark:text-white truncate">
                                             <?= htmlspecialchars($row['dari_lokasi'] ?: 'Tidak diketahui') ?>
                                         </p>
+                                        <?php if(in_array($row['jenis_tracking'], ['Peminjaman', 'Pengembalian', 'Perpanjangan']) && !empty($row['peminjam'])): ?>
+                                        <p class="text-[10px] text-blue-600 dark:text-blue-400 mt-1 flex items-center gap-1">
+                                            <i class="fas fa-user"></i>
+                                            <?= htmlspecialchars($row['peminjam']) ?>
+                                        </p>
+                                        <?php endif; ?>
                                     </div>
                                     
                                     <!-- Arrow -->
@@ -471,6 +588,12 @@ function formatTanggalLocal($tgl) {
                                         <p class="text-sm font-bold text-primary dark:text-primary-light truncate">
                                             <?= htmlspecialchars($row['ke_lokasi'] ?: 'Tidak diketahui') ?>
                                         </p>
+                                        <?php if($row['jenis_tracking'] === 'Peminjaman' && !empty($row['tanggal_kembali_rencana'])): ?>
+                                        <p class="text-[10px] text-amber-600 dark:text-amber-400 mt-1 flex items-center gap-1">
+                                            <i class="fas fa-calendar-alt"></i>
+                                            Kembali: <?= date('d/m/Y', strtotime($row['tanggal_kembali_rencana'])) ?>
+                                        </p>
+                                        <?php endif; ?>
                                     </div>
                                 </div>
                                 
@@ -498,6 +621,7 @@ function formatTanggalLocal($tgl) {
                     </div>
                 </div>
                 <?php endwhile; ?>
+                <?php endif; ?>
             </div>
             
             <!-- Pagination -->
@@ -555,8 +679,6 @@ function formatTanggalLocal($tgl) {
             </div>
             <?php endif; ?>
             
-            <?php endif; ?>
-            <!-- Empty State -->
             <?php if(mysqli_num_rows($result) == 0): ?>
             <div class="bg-white dark:bg-gray-800 rounded-xl shadow-md border border-gray-100 dark:border-gray-700 p-12 text-center">
                 <div class="flex flex-col items-center gap-4">
@@ -571,12 +693,19 @@ function formatTanggalLocal($tgl) {
                             <?= ($search || $filter_jenis) ? 'Coba ubah filter atau kata kunci pencarian' : 'Mulai lacak perpindahan aset sekolah Anda' ?>
                         </p>
                     </div>
-                    <?php if(!$search && !$filter_jenis): ?>
-                    <button @click="openAddModal()" 
-                            class="mt-2 px-6 py-3 bg-primary hover:bg-primary-dark text-white rounded-lg shadow-md hover:shadow-lg transition-all flex items-center gap-2 text-sm font-medium">
-                        <i class="fas fa-plus-circle"></i>
-                        Tambah Tracking Pertama
-                    </button>
+                    <?php if(!$search && !$filter_jenis && canCreate()): ?>
+                    <div class="flex gap-2">
+                        <button @click="openAddModal()" 
+                                class="px-6 py-3 bg-primary hover:bg-primary-dark text-white rounded-lg shadow-md hover:shadow-lg transition-all flex items-center gap-2 text-sm font-medium">
+                            <i class="fas fa-plus-circle"></i>
+                            Tracking Manual
+                        </button>
+                        <a href="peminjaman.php" 
+                           class="px-6 py-3 bg-blue-500 hover:bg-blue-600 text-white rounded-lg shadow-md hover:shadow-lg transition-all flex items-center gap-2 text-sm font-medium">
+                            <i class="fas fa-hand-holding-heart"></i>
+                            Buat Peminjaman
+                        </a>
+                    </div>
                     <?php endif; ?>
                 </div>
             </div>
@@ -586,7 +715,6 @@ function formatTanggalLocal($tgl) {
     </main>
 </div>
 
-<!-- Toast Container -->
 <div id="toast-container" class="fixed top-4 right-4 z-[100] space-y-2"></div>
 
 <script>
@@ -617,12 +745,17 @@ function trackingApp() {
         },
         
         openAddModal() {
-            // Fetch inventaris & ruangan via AJAX
             Swal.fire({
-                title: '<i class="fas fa-plus-circle text-primary mr-2"></i> Tambah Tracking Aset',
+                title: '<i class="fas fa-plus-circle text-primary mr-2"></i> Tambah Tracking Manual',
                 html: `
                     <div class="text-left space-y-4 mt-4 max-h-[70vh] overflow-y-auto pr-2">
-                        <!-- Pilih Aset -->
+                        <div class="p-3 bg-amber-50 dark:bg-amber-900/20 rounded-lg border border-amber-200 dark:border-amber-800">
+                            <p class="text-xs text-amber-800 dark:text-amber-300">
+                                <i class="fas fa-info-circle mr-1"></i>
+                                <strong>Info:</strong> Tracking untuk Peminjaman/Pengembalian/Perpanjangan dibuat otomatis oleh modul Peminjaman. Gunakan form ini untuk tracking manual (Pindah Ruangan, Mutasi, Perbaikan).
+                            </p>
+                        </div>
+                        
                         <div>
                             <label class="flex items-center gap-2 text-sm font-semibold text-gray-700 dark:text-gray-200 mb-2">
                                 <i class="fas fa-box text-primary"></i>
@@ -641,7 +774,6 @@ function trackingApp() {
                             </select>
                         </div>
                         
-                        <!-- Tanggal & Jenis -->
                         <div class="grid grid-cols-2 gap-3">
                             <div>
                                 <label class="flex items-center gap-2 text-sm font-semibold text-gray-700 dark:text-gray-200 mb-2">
@@ -661,14 +793,11 @@ function trackingApp() {
                                     <option value="">-- Pilih --</option>
                                     <option value="Pindah Ruangan">🔄 Pindah Ruangan</option>
                                     <option value="Mutasi">🔀 Mutasi</option>
-                                    <option value="Peminjaman">🤲 Peminjaman</option>
-                                    <option value="Pengembalian">↩️ Pengembalian</option>
                                     <option value="Perbaikan">🔧 Perbaikan</option>
                                 </select>
                             </div>
                         </div>
                         
-                        <!-- Lokasi Fields (Dynamic) -->
                         <div id="location-fields" class="space-y-3">
                             <div class="p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-100 dark:border-blue-800">
                                 <p class="text-xs text-blue-700 dark:text-blue-300">
@@ -678,7 +807,6 @@ function trackingApp() {
                             </div>
                         </div>
                         
-                        <!-- Keterangan -->
                         <div>
                             <label class="flex items-center gap-2 text-sm font-semibold text-gray-700 dark:text-gray-200 mb-2">
                                 <i class="fas fa-note-sticky text-primary"></i>
@@ -697,17 +825,11 @@ function trackingApp() {
                 cancelButtonText: 'Batal',
                 width: '600px',
                 didOpen: () => {
-                    // Auto-fill current location when asset selected
                     document.getElementById('track-inventaris').addEventListener('change', function() {
                         const selected = this.options[this.selectedIndex];
                         const currentRuangan = selected.getAttribute('data-ruangan');
                         const dariField = document.getElementById('track-dari');
-                        const dariSelect = document.getElementById('track-dari-select');
-                        
-                        if (currentRuangan) {
-                            if (dariField) dariField.value = currentRuangan;
-                            if (dariSelect) dariSelect.value = currentRuangan;
-                        }
+                        if (dariField && currentRuangan) dariField.value = currentRuangan;
                     });
                 },
                 preConfirm: () => {
@@ -721,24 +843,17 @@ function trackingApp() {
                         return false;
                     }
                     
-                    // Get location values based on type
                     let dari = '', ke = '';
                     const dariField = document.getElementById('track-dari');
                     const dariSelect = document.getElementById('track-dari-select');
                     const keField = document.getElementById('track-ke');
                     const keSelect = document.getElementById('track-ke-select');
-                    const pihakField = document.getElementById('track-pihak');
                     
                     if (dariField) dari = dariField.value;
-                    else if (dariSelect) dari = dariSelect.options[dariSelect.selectedIndex]?.text || '';
+                    else if (dariSelect) dari = dariSelect.value;
                     
                     if (keField) ke = keField.value;
-                    else if (keSelect) ke = keSelect.options[keSelect.selectedIndex]?.text || '';
-                    
-                    if (pihakField) {
-                        if (jenis === 'Peminjaman') ke = pihakField.value;
-                        else if (jenis === 'Pengembalian') dari = pihakField.value;
-                    }
+                    else if (keSelect) ke = keSelect.value;
                     
                     return { inventaris_id, tanggal, jenis, dari, ke, keterangan };
                 }
@@ -842,7 +957,7 @@ function trackingApp() {
     };
 }
 
-// Dynamic location fields based on tracking type
+// Dynamic location fields (hanya untuk tracking manual)
 function updateLocationFields() {
     const jenis = document.getElementById('track-jenis').value;
     const container = document.getElementById('location-fields');
@@ -864,14 +979,9 @@ function updateLocationFields() {
     let html = '';
     
     if (!jenis) {
-        html = `
-            <div class="p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-100 dark:border-blue-800">
-                <p class="text-xs text-blue-700 dark:text-blue-300">
-                    <i class="fas fa-info-circle mr-1"></i>
-                    Pilih jenis tracking untuk menampilkan field lokasi
-                </p>
-            </div>
-        `;
+        html = `<div class="p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-100 dark:border-blue-800">
+            <p class="text-xs text-blue-700 dark:text-blue-300"><i class="fas fa-info-circle mr-1"></i> Pilih jenis tracking untuk menampilkan field lokasi</p>
+        </div>`;
     } else if (jenis === 'Pindah Ruangan') {
         html = `
             <div class="grid grid-cols-2 gap-3">
@@ -893,11 +1003,9 @@ function updateLocationFields() {
                 </div>
             </div>
             <div class="p-2 bg-emerald-50 dark:bg-emerald-900/20 rounded text-xs text-emerald-700 dark:text-emerald-300">
-                <i class="fas fa-info-circle mr-1"></i>
-                Lokasi aset akan otomatis diupdate ke ruangan tujuan
+                <i class="fas fa-info-circle mr-1"></i> Lokasi aset akan otomatis diupdate ke ruangan tujuan
             </div>
         `;
-        // Auto-fill current location
         setTimeout(() => {
             const dariSelect = document.getElementById('track-dari-select');
             if (dariSelect && currentRuangan) {
@@ -928,48 +1036,6 @@ function updateLocationFields() {
                 </div>
             </div>
         `;
-    } else if (jenis === 'Peminjaman') {
-        html = `
-            <div class="grid grid-cols-2 gap-3">
-                <div>
-                    <label class="text-xs font-semibold text-gray-700 dark:text-gray-200 mb-1.5 block">
-                        <i class="fas fa-warehouse text-blue-500 mr-1"></i> Dari (Lokasi Awal)
-                    </label>
-                    <input type="text" id="track-dari" value="${currentRuangan}" placeholder="Lokasi asal"
-                           class="w-full px-3 py-2 border border-gray-200 dark:border-gray-600 dark:bg-gray-700 rounded-lg text-sm">
-                </div>
-                <div>
-                    <label class="text-xs font-semibold text-gray-700 dark:text-gray-200 mb-1.5 block">
-                        <i class="fas fa-user text-blue-500 mr-1"></i> Peminjam <span class="text-red-500">*</span>
-                    </label>
-                    <input type="text" id="track-pihak" required placeholder="Nama peminjam"
-                           class="w-full px-3 py-2 border border-gray-200 dark:border-gray-600 dark:bg-gray-700 rounded-lg text-sm">
-                </div>
-            </div>
-            <div class="p-2 bg-blue-50 dark:bg-blue-900/20 rounded text-xs text-blue-700 dark:text-blue-300">
-                <i class="fas fa-info-circle mr-1"></i>
-                Aset dicatat sebagai dipinjam oleh pihak tersebut
-            </div>
-        `;
-    } else if (jenis === 'Pengembalian') {
-        html = `
-            <div class="grid grid-cols-2 gap-3">
-                <div>
-                    <label class="text-xs font-semibold text-gray-700 dark:text-gray-200 mb-1.5 block">
-                        <i class="fas fa-user text-purple-500 mr-1"></i> Dari (Peminjam) <span class="text-red-500">*</span>
-                    </label>
-                    <input type="text" id="track-pihak" required placeholder="Nama yang mengembalikan"
-                           class="w-full px-3 py-2 border border-gray-200 dark:border-gray-600 dark:bg-gray-700 rounded-lg text-sm">
-                </div>
-                <div>
-                    <label class="text-xs font-semibold text-gray-700 dark:text-gray-200 mb-1.5 block">
-                        <i class="fas fa-warehouse text-purple-500 mr-1"></i> Ke (Lokasi Tujuan)
-                    </label>
-                    <input type="text" id="track-ke" value="${currentRuangan}" placeholder="Lokasi penyimpanan"
-                           class="w-full px-3 py-2 border border-gray-200 dark:border-gray-600 dark:bg-gray-700 rounded-lg text-sm">
-                </div>
-            </div>
-        `;
     } else if (jenis === 'Perbaikan') {
         html = `
             <div class="grid grid-cols-2 gap-3">
@@ -994,7 +1060,6 @@ function updateLocationFields() {
     container.innerHTML = html;
 }
 
-// Keyboard shortcuts
 document.addEventListener('keydown', (e) => {
     if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
         e.preventDefault();

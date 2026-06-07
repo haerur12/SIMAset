@@ -107,6 +107,14 @@ $user_initial = strtoupper(substr($user_name, 0, 1));
                 <span class="relative z-10">Kondisi Aset</span>
             </a>
             
+            <a href="peminjaman.php" 
+               class="group flex items-center px-5 py-3.5 mx-3 mb-1 rounded-xl text-white/90 text-sm font-medium transition-all duration-300 hover:bg-white/15 hover:translate-x-1 relative overflow-hidden <?= ($current_page=='peminjaman.php') ? 'active bg-white/20 text-white font-semibold shadow-lg shadow-blue-900/50' : '' ?>">
+                <div class="absolute inset-0 bg-gradient-to-r from-white/20 to-transparent transform -translate-x-full group-hover:translate-x-0 transition-transform duration-300"></div>
+                <div class="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-0 bg-cyan-300 rounded-r-full transition-all duration-300 shadow-lg shadow-cyan-300/50 <?= ($current_page=='peminjaman.php') ? 'h-3/5' : 'group-hover:h-3/5' ?>"></div>
+                <i class="fas fa-hand-holding-heart w-6 mr-3 text-lg transition-all duration-300 group-hover:scale-125 group-hover:-rotate-12 relative z-10"></i>
+                <span class="relative z-10">Peminjaman</span>
+            </a>
+            
             <a href="tracking_aset.php" 
                class="group flex items-center px-5 py-3.5 mx-3 mb-1 rounded-xl text-white/90 text-sm font-medium transition-all duration-300 hover:bg-white/15 hover:translate-x-1 relative overflow-hidden <?= ($current_page=='tracking_aset.php') ? 'active bg-white/20 text-white font-semibold shadow-lg shadow-blue-900/50' : '' ?>">
                 <div class="absolute inset-0 bg-gradient-to-r from-white/20 to-transparent transform -translate-x-full group-hover:translate-x-0 transition-transform duration-300"></div>

@@ -303,6 +303,44 @@ function formatUnit($angka) {
                 
             </div>
             
+            <!-- Widget Peminjaman Aktif (Opsional) -->
+            <?php
+            $peminjaman_aktif = mysqli_query($conn, "SELECT COUNT(*) as total FROM peminjaman_aset WHERE status = 'dipinjam'")->fetch_assoc()['total'];
+            $peminjaman_terlambat = mysqli_query($conn, "SELECT COUNT(*) as total FROM peminjaman_aset WHERE status = 'terlambat' OR (status = 'dipinjam' AND tanggal_kembali_rencana < CURDATE())")->fetch_assoc()['total'];
+
+            if($peminjaman_aktif > 0 || $peminjaman_terlambat > 0):
+            ?>
+            <div class="bg-gradient-to-r from-sky-500 to-blue-600 rounded-2xl shadow-lg p-5 text-white">
+                <div class="flex items-center justify-between">
+                    <div class="flex items-center gap-3">
+                        <div class="p-3 bg-white/20 backdrop-blur rounded-xl">
+                            <i class="fas fa-hand-holding-heart text-2xl"></i>
+                        </div>
+                        <div>
+                            <h3 class="font-bold text-lg">Peminjaman Aset</h3>
+                            <p class="text-sm text-white/80">Monitoring peminjaman aktif</p>
+                        </div>
+                    </div>
+                    <div class="flex gap-3">
+                        <div class="text-center px-4 py-2 bg-white/15 backdrop-blur rounded-lg">
+                            <p class="text-2xl font-bold"><?= $peminjaman_aktif ?></p>
+                            <p class="text-[10px] uppercase text-white/80">Aktif</p>
+                        </div>
+                        <?php if($peminjaman_terlambat > 0): ?>
+                        <div class="text-center px-4 py-2 bg-red-500/30 backdrop-blur rounded-lg animate-pulse">
+                            <p class="text-2xl font-bold"><?= $peminjaman_terlambat ?></p>
+                            <p class="text-[10px] uppercase text-white/80">Terlambat</p>
+                        </div>
+                        <?php endif; ?>
+                    </div>
+                </div>
+                <a href="peminjaman.php" class="mt-3 inline-flex items-center gap-2 text-sm text-white/90 hover:text-white">
+                    <span>Lihat Detail</span>
+                    <i class="fas fa-arrow-right"></i>
+                </a>
+            </div>
+            <?php endif; ?>
+
             <!-- ✅ SECTION 2: BREAKDOWN SUMBER PENGADAAN (5 Card dengan Progress Bar) -->
             <div class="bg-white dark:bg-gray-800 rounded-2xl shadow-md border border-gray-100 dark:border-gray-700 overflow-hidden">
                 
