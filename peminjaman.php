@@ -11,7 +11,7 @@ if(!isset($_SESSION['login'])) {
 }
 
 // ============================================
-// ✅ PROSES: TAMBAH PEMINJAMAN
+// ✅ PROSES: TAMBAH PEMINJAMAN (dengan breakdown kondisi)
 // ============================================
 if(isset($_POST['tambah_peminjaman'])) {
     requireAccess('create', 'peminjaman.php');
@@ -26,10 +26,23 @@ if(isset($_POST['tambah_peminjaman'])) {
     $jumlah = intval($_POST['jumlah'] ?? 1);
     $keperluan = mysqli_real_escape_string($conn, trim($_POST['keperluan'] ?? ''));
     $keterangan = mysqli_real_escape_string($conn, trim($_POST['keterangan'] ?? ''));
-    $kondisi_sebelum = mysqli_real_escape_string($conn, $_POST['kondisi_sebelum'] ?? 'Baik');
     $created_by = $_SESSION['user_id'] ?? null;
     
-    // Validasi
+    // ✅ BREAKDOWN KONDISI SAAT DIPINJAM
+    $k_baik = intval($_POST['kondisi_baik_pinjam'] ?? 0);
+    $k_rusak_ringan = intval($_POST['kondisi_rusak_ringan_pinjam'] ?? 0);
+    $k_rusak_berat = intval($_POST['kondisi_rusak_berat_pinjam'] ?? 0);
+    $k_perbaikan = intval($_POST['kondisi_perbaikan_pinjam'] ?? 0);
+    $total_kondisi = $k_baik + $k_rusak_ringan + $k_rusak_berat + $k_perbaikan;
+    
+    // Validasi breakdown kondisi harus sama dengan jumlah
+    if($total_kondisi != $jumlah) {
+        $_SESSION['flash_error'] = "Total breakdown kondisi ($total_kondisi) harus sama dengan jumlah unit ($jumlah)!";
+        header("Location: peminjaman.php");
+        exit;
+    }
+    
+    // Validasi umum
     if(empty($peminjam) || empty($inventaris_id) || empty($tanggal_pinjam) || empty($tanggal_kembali_rencana)) {
         $_SESSION['flash_error'] = 'Field wajib harus diisi!';
         header("Location: peminjaman.php");
@@ -62,34 +75,38 @@ if(isset($_POST['tambah_peminjaman'])) {
     $query = "INSERT INTO peminjaman_aset (
         inventaris_id, peminjam, nip_peminjam, unit_kerja, no_hp,
         tanggal_pinjam, tanggal_kembali_rencana, jumlah, keperluan,
-        keterangan, kondisi_sebelum, created_by
+        keterangan, kondisi_sebelum,
+        kondisi_baik_pinjam, kondisi_rusak_ringan_pinjam, 
+        kondisi_rusak_berat_pinjam, kondisi_perbaikan_pinjam,
+        created_by
     ) VALUES (
         $inventaris_id, '$peminjam', '$nip_peminjam', '$unit_kerja', '$no_hp',
         '$tanggal_pinjam', '$tanggal_kembali_rencana', $jumlah, '$keperluan',
-        '$keterangan', '$kondisi_sebelum', $created_by
+        '$keterangan', 'Baik',
+        $k_baik, $k_rusak_ringan, $k_rusak_berat, $k_perbaikan,
+        $created_by
     )";
     
     if(mysqli_query($conn, $query)) {
         $peminjaman_id = mysqli_insert_id($conn);
 
-        // ✅ AUTO TRACKING: Catat peminjaman di tracking_aset
+        // ✅ AUTO TRACKING
         $petugas = mysqli_real_escape_string($conn, $_SESSION['nama_lengkap'] ?? 'Admin');
-        $ket_tracking = "Peminjaman oleh $peminjam" . ($unit_kerja ? " ($unit_kerja)" : "") . " - Jumlah: $jumlah unit" . ($keperluan ? " - Keperluan: $keperluan" : "");
+        $ket_tracking = "Peminjaman oleh $peminjam" . ($unit_kerja ? " ($unit_kerja)" : "") . 
+                       " - Jumlah: $jumlah unit (Baik:$k_baik, RR:$k_rusak_ringan, RB:$k_rusak_berat, Perbaikan:$k_perbaikan)" . 
+                       ($keperluan ? " - Keperluan: $keperluan" : "");
 
         mysqli_query($conn, "INSERT INTO tracking_aset 
             (inventaris_id, peminjaman_id, tanggal_tracking, jenis_tracking, dari_lokasi, ke_lokasi, keterangan, petugas) 
             VALUES (
-                $inventaris_id, 
-                $peminjaman_id, 
-                '$tanggal_pinjam', 
-                'Peminjaman', 
+                $inventaris_id, $peminjaman_id, '$tanggal_pinjam', 'Peminjaman', 
                 '" . mysqli_real_escape_string($conn, $dari_lokasi) . "', 
                 '" . mysqli_real_escape_string($conn, $peminjam) . "', 
                 '" . mysqli_real_escape_string($conn, $ket_tracking) . "', 
                 '" . mysqli_real_escape_string($conn, $petugas) . "'
             )");
 
-        $_SESSION['flash_success'] = 'Peminjaman berhasil dicatat & tercatat di tracking!';
+        $_SESSION['flash_success'] = 'Peminjaman berhasil dicatat dengan breakdown kondisi!';
     } else {
         $_SESSION['flash_error'] = 'Gagal menyimpan: ' . mysqli_error($conn);
     }
@@ -98,19 +115,24 @@ if(isset($_POST['tambah_peminjaman'])) {
 }
 
 // ============================================
-// ✅ PROSES: PENGEMBALIAN
+// ✅ PROSES: PENGEMBALIAN (dengan breakdown kondisi & auto-update inventaris)
 // ============================================
 if(isset($_POST['kembalikan_peminjaman'])) {
     requireAccess('update', 'peminjaman.php');
     
     $id = intval($_POST['id']);
     $tanggal_kembali_aktual = mysqli_real_escape_string($conn, $_POST['tanggal_kembali_aktual'] ?? date('Y-m-d'));
-    $kondisi_sesudah = mysqli_real_escape_string($conn, $_POST['kondisi_sesudah'] ?? 'Baik');
     $catatan_pengembalian = mysqli_real_escape_string($conn, trim($_POST['catatan_pengembalian'] ?? ''));
     $petugas = mysqli_real_escape_string($conn, $_SESSION['nama_lengkap'] ?? 'Admin');
     
+    // ✅ BREAKDOWN KONDISI SAAT DIKEMBALIKAN
+    $k_baik_kembali = intval($_POST['kondisi_baik_kembali'] ?? 0);
+    $k_rusak_ringan_kembali = intval($_POST['kondisi_rusak_ringan_kembali'] ?? 0);
+    $k_rusak_berat_kembali = intval($_POST['kondisi_rusak_berat_kembali'] ?? 0);
+    $k_perbaikan_kembali = intval($_POST['kondisi_perbaikan_kembali'] ?? 0);
+    
     // Ambil data peminjaman
-    $dataRes = mysqli_query($conn, "SELECT p.*, i.nama_barang_108, r.nama_ruangan 
+    $dataRes = mysqli_query($conn, "SELECT p.*, i.nama_barang_108, r.nama_ruangan, i.kondisi_aset as kondisi_inventaris
         FROM peminjaman_aset p 
         LEFT JOIN inventaris i ON p.inventaris_id = i.id 
         LEFT JOIN ruangan r ON i.ruangan_id = r.id 
@@ -121,24 +143,79 @@ if(isset($_POST['kembalikan_peminjaman'])) {
         header("Location: peminjaman.php");
         exit;
     }
+    
+    // Validasi total breakdown
+    $total_kondisi_kembali = $k_baik_kembali + $k_rusak_ringan_kembali + $k_rusak_berat_kembali + $k_perbaikan_kembali;
+    if($total_kondisi_kembali != $data['jumlah']) {
+        $_SESSION['flash_error'] = "Total breakdown kondisi kembali ($total_kondisi_kembali) harus sama dengan jumlah unit ({$data['jumlah']})!";
+        header("Location: peminjaman.php?tab=aktif");
+        exit;
+    }
 
     // Cek status
-    $check_status = mysqli_query($conn, "SELECT status FROM peminjaman_aset WHERE id = $id");
-    $check_status = $check_status ? mysqli_fetch_assoc($check_status) : ['status' => 'dipinjam'];
-    $status = ($check_status['status'] === 'terlambat') ? 'terlambat' : 'dikembalikan';
+    $status = ($data['status'] === 'terlambat' || $data['tanggal_kembali_rencana'] < date('Y-m-d')) ? 'terlambat' : 'dikembalikan';
+    if($status === 'dipinjam') $status = 'dikembalikan';
 
+    // ✅ TENTUKAN KONDISI UTAMA BERDASARKAN BREAKDOWN (prioritas kerusakan)
+    if($k_rusak_berat_kembali > 0) {
+        $kondisi_utama = 'Rusak Berat';
+    } elseif($k_perbaikan_kembali > 0) {
+        $kondisi_utama = 'Dalam Perbaikan';
+    } elseif($k_rusak_ringan_kembali > 0) {
+        $kondisi_utama = 'Rusak Ringan';
+    } else {
+        $kondisi_utama = 'Baik';
+    }
+
+    // Update peminjaman
     $query = "UPDATE peminjaman_aset SET 
         status = '$status',
         tanggal_kembali_aktual = '$tanggal_kembali_aktual',
-        kondisi_sesudah = '$kondisi_sesudah',
+        kondisi_sesudah = '$kondisi_utama',
+        kondisi_baik_kembali = $k_baik_kembali,
+        kondisi_rusak_ringan_kembali = $k_rusak_ringan_kembali,
+        kondisi_rusak_berat_kembali = $k_rusak_berat_kembali,
+        kondisi_perbaikan_kembali = $k_perbaikan_kembali,
         catatan_pengembalian = '$catatan_pengembalian',
         petugas_serah_terima = '$petugas'
         WHERE id = $id";
 
     if(mysqli_query($conn, $query)) {
-        // ✅ AUTO TRACKING: Catat pengembalian di tracking_aset
+        // ✅ AUTO UPDATE KONDISI INVENTARIS berdasarkan kondisi saat kembali
+        $kondisi_utama_esc = mysqli_real_escape_string($conn, $kondisi_utama);
+        mysqli_query($conn, "UPDATE inventaris SET kondisi_aset = '$kondisi_utama_esc' WHERE id = {$data['inventaris_id']}");
+        
+        // ✅ UPDATE DETAIL KONDISI di tabel kondisi_aset (jika ada)
+        $detail_json = json_encode([
+            'baik' => $k_baik_kembali,
+            'rusak_ringan' => $k_rusak_ringan_kembali,
+            'rusak_berat' => $k_rusak_berat_kembali,
+            'dalam_perbaikan' => $k_perbaikan_kembali,
+            'total' => $data['jumlah']
+        ]);
+        
+        $ket_kondisi = "Dari peminjaman oleh {$data['peminjam']}. Kondisi: Baik:$k_baik_kembali, RR:$k_rusak_ringan_kembali, RB:$k_rusak_berat_kembali, Perbaikan:$k_perbaikan_kembali";
+        
+        // Cek apakah sudah ada record kondisi untuk aset ini
+        $existing_kondisi = mysqli_query($conn, "SELECT id FROM kondisi_aset WHERE inventaris_id = {$data['inventaris_id']} ORDER BY created_at DESC LIMIT 1");
+        
+        if($existing_kondisi && mysqli_num_rows($existing_kondisi) > 0) {
+            $existing = mysqli_fetch_assoc($existing_kondisi);
+            mysqli_query($conn, "UPDATE kondisi_aset SET 
+                kondisi = '$kondisi_utama_esc',
+                detail_kondisi = '$detail_json',
+                keterangan = CONCAT(keterangan, ' | [PENGEMBALIAN] $ket_kondisi'),
+                tanggal_cek = '$tanggal_kembali_aktual'
+                WHERE id = {$existing['id']}");
+        } else {
+            mysqli_query($conn, "INSERT INTO kondisi_aset 
+                (inventaris_id, kondisi, detail_kondisi, keterangan, petugas, tanggal_cek) 
+                VALUES ({$data['inventaris_id']}, '$kondisi_utama_esc', '$detail_json', '$ket_kondisi', '$petugas', '$tanggal_kembali_aktual')");
+        }
+
+        // ✅ AUTO TRACKING
         $ke_lokasi = $data['nama_ruangan'] ?? 'Gudang';
-        $ket_tracking = "Pengembalian oleh {$data['peminjam']} - Kondisi: $kondisi_sesudah";
+        $ket_tracking = "Pengembalian oleh {$data['peminjam']} - Kondisi Utama: $kondisi_utama (Baik:$k_baik_kembali, RR:$k_rusak_ringan_kembali, RB:$k_rusak_berat_kembali, Perbaikan:$k_perbaikan_kembali)";
         if($catatan_pengembalian) $ket_tracking .= " - Catatan: $catatan_pengembalian";
         if($status === 'terlambat') $ket_tracking .= " [TERLAMBAT]";
 
@@ -146,19 +223,16 @@ if(isset($_POST['kembalikan_peminjaman'])) {
         mysqli_query($conn, "INSERT INTO tracking_aset 
             (inventaris_id, peminjaman_id, tanggal_tracking, jenis_tracking, dari_lokasi, ke_lokasi, keterangan, petugas) 
             VALUES (
-                {$data['inventaris_id']}, 
-                $id, 
-                '$tanggal_kembali_aktual', 
-                'Pengembalian', 
+                {$data['inventaris_id']}, $id, '$tanggal_kembali_aktual', 'Pengembalian', 
                 '" . mysqli_real_escape_string($conn, $data['peminjam']) . "', 
                 '" . mysqli_real_escape_string($conn, $ke_lokasi) . "', 
                 '" . mysqli_real_escape_string($conn, $ket_tracking) . "', 
                 '$petugas_esc'
             )");
 
-        $_SESSION['flash_success'] = 'Pengembalian berhasil dicatat & tercatat di tracking!';
+        $_SESSION['flash_success'] = "Pengembalian berhasil! Kondisi inventaris diupdate ke: $kondisi_utama";
     } else {
-        $_SESSION['flash_error'] = 'Gagal menyimpan pengembalian';
+        $_SESSION['flash_error'] = 'Gagal menyimpan pengembalian: ' . mysqli_error($conn);
     }
     header("Location: peminjaman.php?tab=" . ($_POST['tab'] ?? 'aktif'));
     exit;
@@ -173,7 +247,6 @@ if(isset($_POST['perpanjang_peminjaman'])) {
     $id = intval($_POST['id']);
     $tanggal_baru = mysqli_real_escape_string($conn, $_POST['tanggal_kembali_rencana']);
     
-    // Ambil data lama
     $dataRes = mysqli_query($conn, "SELECT * FROM peminjaman_aset WHERE id = $id");
     $data = $dataRes ? mysqli_fetch_assoc($dataRes) : null;
     $tanggal_lama = $data['tanggal_kembali_rencana'] ?? null;
@@ -181,26 +254,54 @@ if(isset($_POST['perpanjang_peminjaman'])) {
     $query = "UPDATE peminjaman_aset SET tanggal_kembali_rencana = '$tanggal_baru', status = 'dipinjam' WHERE id = $id";
 
     if(mysqli_query($conn, $query)) {
-        // ✅ AUTO TRACKING: Catat perpanjangan di tracking_aset
         $petugas = mysqli_real_escape_string($conn, $_SESSION['nama_lengkap'] ?? 'Admin');
         $ket_tracking = "Perpanjangan peminjaman oleh {$data['peminjam']} - Dari " . date('d/m/Y', strtotime($tanggal_lama)) . " menjadi " . date('d/m/Y', strtotime($tanggal_baru));
 
         mysqli_query($conn, "INSERT INTO tracking_aset 
             (inventaris_id, peminjaman_id, tanggal_tracking, jenis_tracking, dari_lokasi, ke_lokasi, keterangan, petugas) 
             VALUES (
-                {$data['inventaris_id']}, 
-                $id, 
-                CURDATE(), 
-                'Perpanjangan', 
+                {$data['inventaris_id']}, $id, CURDATE(), 'Perpanjangan', 
                 '" . mysqli_real_escape_string($conn, $data['peminjam']) . "', 
                 '" . mysqli_real_escape_string($conn, $data['peminjam']) . "', 
                 '" . mysqli_real_escape_string($conn, $ket_tracking) . "', 
                 '$petugas'
             )");
 
-        $_SESSION['flash_success'] = 'Peminjaman berhasil diperpanjang & tercatat di tracking!';
+        $_SESSION['flash_success'] = 'Peminjaman berhasil diperpanjang!';
     }
     header("Location: peminjaman.php?tab=aktif");
+    exit;
+}
+
+// ============================================
+// ✅ PROSES: HAPUS PEMINJAMAN (BARU!)
+// ============================================
+if(isset($_GET['hapus'])) {
+    requireAccess('delete', 'peminjaman.php');
+    
+    $id = intval($_GET['hapus']);
+    
+    // Ambil data untuk validasi & tracking
+    $dataRes = mysqli_query($conn, "SELECT * FROM peminjaman_aset WHERE id = $id");
+    $data = $dataRes ? mysqli_fetch_assoc($dataRes) : null;
+    
+    if(!$data) {
+        $_SESSION['flash_error'] = 'Data peminjaman tidak ditemukan';
+    } elseif($data['status'] === 'dikembalikan') {
+        $_SESSION['flash_error'] = 'Tidak dapat menghapus peminjaman yang sudah dikembalikan!';
+    } else {
+        // Hapus tracking terkait
+        mysqli_query($conn, "DELETE FROM tracking_aset WHERE peminjaman_id = $id");
+        
+        // Hapus peminjaman
+        if(mysqli_query($conn, "DELETE FROM peminjaman_aset WHERE id = $id")) {
+            $_SESSION['flash_success'] = 'Peminjaman berhasil dihapus beserta riwayat tracking-nya!';
+        } else {
+            $_SESSION['flash_error'] = 'Gagal menghapus: ' . mysqli_error($conn);
+        }
+    }
+    
+    header("Location: peminjaman.php?tab=" . ($_GET['tab'] ?? 'semua'));
     exit;
 }
 
@@ -245,7 +346,6 @@ if($search) {
 
 $where_sql = !empty($where) ? "WHERE " . implode(" AND ", $where) : "";
 
-// Query peminjaman
 $query = "SELECT p.*, i.nama_barang_108, i.spesifikasi_nama_barang, i.jumlah as stok_total,
                  r.nama_ruangan, u.nama_lengkap as petugas_input
           FROM peminjaman_aset p
@@ -262,7 +362,6 @@ $query = "SELECT p.*, i.nama_barang_108, i.spesifikasi_nama_barang, i.jumlah as 
             p.tanggal_pinjam DESC";
 $result = mysqli_query($conn, $query);
 
-// List aset untuk dropdown (hanya yang punya stok)
 $aset_list = mysqli_query($conn, "SELECT i.id, i.nama_barang_108, i.jumlah, i.satuan,
     (i.jumlah - COALESCE((SELECT SUM(jumlah) FROM peminjaman_aset WHERE inventaris_id = i.id AND status IN ('dipinjam', 'terlambat')), 0)) as tersedia
     FROM inventaris i
@@ -314,27 +413,34 @@ $aset_list = mysqli_query($conn, "SELECT i.id, i.nama_barang_108, i.jumlah, i.sa
             background: linear-gradient(90deg, rgba(239, 68, 68, 0.08) 0%, transparent 100%) !important;
             border-left: 3px solid #ef4444 !important;
         }
-        .row-dipinjam {
-            border-left: 3px solid #3b82f6 !important;
-        }
-        .row-dikembalikan {
-            border-left: 3px solid #10b981 !important;
-            opacity: 0.85;
-        }
+        .row-dipinjam { border-left: 3px solid #3b82f6 !important; }
+        .row-dikembalikan { border-left: 3px solid #10b981 !important; opacity: 0.85; }
         
-        .pulse-dot {
-            animation: pulse 2s infinite;
-        }
-        @keyframes pulse {
-            0%, 100% { opacity: 1; }
-            50% { opacity: 0.5; }
-        }
+        .pulse-dot { animation: pulse 2s infinite; }
+        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
         
-        /* Modal animation */
         .modal-enter { animation: modalEnter 0.3s ease-out; }
-        @keyframes modalEnter {
-            from { opacity: 0; transform: scale(0.95); }
-            to { opacity: 1; transform: scale(1); }
+        @keyframes modalEnter { from { opacity: 0; transform: scale(0.95); } to { opacity: 1; transform: scale(1); } }
+        
+        /* Breakdown condition input */
+        .kondisi-input-group {
+            transition: all 0.2s;
+        }
+        .kondisi-input-group:focus-within {
+            transform: scale(1.02);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+        }
+        
+        .breakdown-summary {
+            transition: all 0.3s;
+        }
+        .breakdown-valid {
+            background: linear-gradient(135deg, #10b981, #059669);
+            color: white;
+        }
+        .breakdown-invalid {
+            background: linear-gradient(135deg, #ef4444, #dc2626);
+            color: white;
         }
     </style>
 </head>
@@ -343,11 +449,8 @@ $aset_list = mysqli_query($conn, "SELECT i.id, i.nama_barang_108, i.jumlah, i.sa
 
 <div class="flex min-h-screen" x-data="peminjamanApp()">
     
-    <div x-show="sidebarOpen" 
-         x-transition
-         @click="sidebarOpen = false"
-         class="fixed inset-0 bg-black/50 z-40 lg:hidden"
-         style="display: none;"></div>
+    <div x-show="sidebarOpen" x-transition @click="sidebarOpen = false"
+         class="fixed inset-0 bg-black/50 z-40 lg:hidden" style="display: none;"></div>
 
     <?php include 'sidebar.php'; ?>
     
@@ -377,6 +480,12 @@ $aset_list = mysqli_query($conn, "SELECT i.id, i.nama_barang_108, i.jumlah, i.sa
                     <i class="fas" :class="darkMode ? 'fa-sun text-yellow-400' : 'fa-moon text-gray-600'"></i>
                 </button>
                 
+                <a href="laporan_peminjaman.php" 
+                   class="hidden md:flex items-center gap-2 px-3 py-2 bg-purple-500 hover:bg-purple-600 text-white rounded-lg shadow-md hover:shadow-lg transition-all text-sm">
+                    <i class="fas fa-file-alt"></i>
+                    <span>Laporan Bulanan</span>
+                </a>
+                
                 <?php if(canCreate()): ?>
                 <button @click="openFormPeminjaman()" 
                         class="hidden sm:flex items-center gap-2 px-4 py-2 lg:py-3 bg-gradient-to-r from-primary to-primary-light hover:from-primary-dark hover:to-primary text-white rounded-lg shadow-md hover:shadow-lg transition-all">
@@ -391,14 +500,14 @@ $aset_list = mysqli_query($conn, "SELECT i.id, i.nama_barang_108, i.jumlah, i.sa
             
             <!-- Flash Messages -->
             <?php if($flash_success): ?>
-            <div class="bg-emerald-50 dark:bg-emerald-900/20 border-l-4 border-emerald-500 rounded-lg p-4 flex items-center gap-3 animate-slide-in-left">
+            <div class="bg-emerald-50 dark:bg-emerald-900/20 border-l-4 border-emerald-500 rounded-lg p-4 flex items-center gap-3">
                 <i class="fas fa-check-circle text-emerald-500 text-xl"></i>
                 <span class="text-emerald-800 dark:text-emerald-300 font-medium"><?= htmlspecialchars($flash_success) ?></span>
             </div>
             <?php endif; ?>
             
             <?php if($flash_error): ?>
-            <div class="bg-red-50 dark:bg-red-900/20 border-l-4 border-red-500 rounded-lg p-4 flex items-center gap-3 animate-slide-in-left">
+            <div class="bg-red-50 dark:bg-red-900/20 border-l-4 border-red-500 rounded-lg p-4 flex items-center gap-3">
                 <i class="fas fa-exclamation-circle text-red-500 text-xl"></i>
                 <span class="text-red-800 dark:text-red-300 font-medium"><?= htmlspecialchars($flash_error) ?></span>
             </div>
@@ -408,11 +517,11 @@ $aset_list = mysqli_query($conn, "SELECT i.id, i.nama_barang_108, i.jumlah, i.sa
             <div class="grid grid-cols-2 lg:grid-cols-5 gap-4">
                 <?php 
                 $stats = [
-                    ['Total Peminjaman', $stat_total, 'fa-hand-holding', 'from-blue-500 to-blue-600', 'Semua waktu'],
-                    ['Sedang Dipinjam', $stat_aktif, 'fa-clock', 'from-sky-500 to-sky-600', 'Aktif sekarang'],
+                    ['Total', $stat_total, 'fa-hand-holding', 'from-blue-500 to-blue-600', 'Semua waktu'],
+                    ['Aktif', $stat_aktif, 'fa-clock', 'from-sky-500 to-sky-600', 'Sedang dipinjam'],
                     ['Terlambat', $stat_terlambat, 'fa-exclamation-triangle', 'from-red-500 to-red-600', 'Perlu perhatian'],
                     ['Bulan Ini', $stat_bulan_ini, 'fa-calendar', 'from-purple-500 to-purple-600', 'Peminjaman baru'],
-                    ['Dikembalikan', $stat_dikembalikan, 'fa-check-circle', 'from-emerald-500 to-emerald-600', 'Selesai'],
+                    ['Selesai', $stat_dikembalikan, 'fa-check-circle', 'from-emerald-500 to-emerald-600', 'Dikembalikan'],
                 ];
                 foreach($stats as $idx => $stat): ?>
                 <div class="stagger-item group relative bg-white dark:bg-gray-800 rounded-xl shadow-md hover:shadow-xl transition-all duration-300 overflow-hidden border border-gray-100 dark:border-gray-700 hover:-translate-y-1">
@@ -438,48 +547,35 @@ $aset_list = mysqli_query($conn, "SELECT i.id, i.nama_barang_108, i.jumlah, i.sa
                 <!-- Tabs & Search -->
                 <div class="p-5 lg:p-6 border-b border-gray-200 dark:border-gray-700 bg-gradient-to-r from-primary/5 to-transparent">
                     <div class="flex flex-col gap-4">
-                        
-                        <!-- Tabs -->
                         <div class="flex flex-wrap gap-2">
                             <a href="?tab=semua<?= $search ? '&search='.urlencode($search) : '' ?>" 
                                class="px-4 py-2 rounded-lg text-sm font-semibold transition-all flex items-center gap-2 <?= $tab === 'semua' ? 'tab-active' : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-200' ?>">
-                                <i class="fas fa-list"></i>
-                                <span>Semua</span>
-                                <span class="ml-1 px-2 py-0.5 bg-white/20 rounded-full text-[10px]"><?= $stat_total ?></span>
+                                <i class="fas fa-list"></i> Semua <span class="ml-1 px-2 py-0.5 bg-white/20 rounded-full text-[10px]"><?= $stat_total ?></span>
                             </a>
                             <a href="?tab=aktif<?= $search ? '&search='.urlencode($search) : '' ?>" 
                                class="px-4 py-2 rounded-lg text-sm font-semibold transition-all flex items-center gap-2 <?= $tab === 'aktif' ? 'tab-active' : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-200' ?>">
-                                <i class="fas fa-clock"></i>
-                                <span>Aktif</span>
-                                <span class="ml-1 px-2 py-0.5 bg-sky-100 text-sky-700 rounded-full text-[10px]"><?= $stat_aktif ?></span>
+                                <i class="fas fa-clock"></i> Aktif <span class="ml-1 px-2 py-0.5 bg-sky-100 text-sky-700 rounded-full text-[10px]"><?= $stat_aktif ?></span>
                             </a>
                             <a href="?tab=terlambat<?= $search ? '&search='.urlencode($search) : '' ?>" 
                                class="px-4 py-2 rounded-lg text-sm font-semibold transition-all flex items-center gap-2 <?= $tab === 'terlambat' ? 'tab-active' : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-200' ?>">
-                                <i class="fas fa-exclamation-triangle"></i>
-                                <span>Terlambat</span>
-                                <span class="ml-1 px-2 py-0.5 bg-red-100 text-red-700 rounded-full text-[10px]"><?= $stat_terlambat ?></span>
+                                <i class="fas fa-exclamation-triangle"></i> Terlambat <span class="ml-1 px-2 py-0.5 bg-red-100 text-red-700 rounded-full text-[10px]"><?= $stat_terlambat ?></span>
                             </a>
                             <a href="?tab=dikembalikan<?= $search ? '&search='.urlencode($search) : '' ?>" 
                                class="px-4 py-2 rounded-lg text-sm font-semibold transition-all flex items-center gap-2 <?= $tab === 'dikembalikan' ? 'tab-active' : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-200' ?>">
-                                <i class="fas fa-check-circle"></i>
-                                <span>Dikembalikan</span>
-                                <span class="ml-1 px-2 py-0.5 bg-emerald-100 text-emerald-700 rounded-full text-[10px]"><?= $stat_dikembalikan ?></span>
+                                <i class="fas fa-check-circle"></i> Selesai <span class="ml-1 px-2 py-0.5 bg-emerald-100 text-emerald-700 rounded-full text-[10px]"><?= $stat_dikembalikan ?></span>
                             </a>
                         </div>
                         
-                        <!-- Search -->
                         <form method="GET" class="flex gap-2 w-full lg:w-auto">
                             <input type="hidden" name="tab" value="<?= htmlspecialchars($tab) ?>">
                             <div class="relative flex-1 lg:w-96">
                                 <i class="fas fa-search absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"></i>
-                                <input type="text" name="search" 
-                                       placeholder="Cari peminjam, nama barang, atau unit kerja..." 
+                                <input type="text" name="search" placeholder="Cari peminjam, barang, atau unit kerja..." 
                                        value="<?= htmlspecialchars($search) ?>"
                                        class="w-full pl-10 pr-4 py-2.5 bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-all text-sm">
                             </div>
                             <button type="submit" class="px-5 py-2.5 bg-primary hover:bg-primary-dark text-white rounded-lg shadow-md hover:shadow-lg transition-all flex items-center gap-2 text-sm font-medium">
-                                <i class="fas fa-search"></i>
-                                <span class="hidden sm:inline">Cari</span>
+                                <i class="fas fa-search"></i><span class="hidden sm:inline">Cari</span>
                             </button>
                             <?php if($search): ?>
                             <a href="?tab=<?= $tab ?>" class="px-4 py-2.5 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-200 rounded-lg transition-all flex items-center gap-2 text-sm font-medium">
@@ -498,8 +594,8 @@ $aset_list = mysqli_query($conn, "SELECT i.id, i.nama_barang_108, i.jumlah, i.sa
                                 <th class="px-4 py-4 text-left text-xs font-semibold uppercase tracking-wider">Peminjam / Aset</th>
                                 <th class="px-4 py-4 text-left text-xs font-semibold uppercase tracking-wider">Unit Kerja</th>
                                 <th class="px-4 py-4 text-center text-xs font-semibold uppercase tracking-wider">Periode</th>
+                                <th class="px-4 py-4 text-center text-xs font-semibold uppercase tracking-wider">Kondisi</th>
                                 <th class="px-4 py-4 text-center text-xs font-semibold uppercase tracking-wider">Status</th>
-                                <th class="px-4 py-4 text-left text-xs font-semibold uppercase tracking-wider">Petugas</th>
                                 <th class="px-4 py-4 text-center text-xs font-semibold uppercase tracking-wider">Aksi</th>
                             </tr>
                         </thead>
@@ -520,7 +616,6 @@ $aset_list = mysqli_query($conn, "SELECT i.id, i.nama_barang_108, i.jumlah, i.sa
                             </tr>
                             <?php else:
                                 while($row = mysqli_fetch_assoc($result)): 
-                                    // Cek status terlambat real-time
                                     $is_terlambat = ($row['status'] === 'dipinjam' && $row['tanggal_kembali_rencana'] < date('Y-m-d'));
                                     $actual_status = $is_terlambat ? 'terlambat' : $row['status'];
                                     
@@ -532,7 +627,7 @@ $aset_list = mysqli_query($conn, "SELECT i.id, i.nama_barang_108, i.jumlah, i.sa
                                     $status_badge = [
                                         'dipinjam' => ['bg-blue-100 text-blue-700 border-blue-200', 'fa-clock', 'Dipinjam'],
                                         'terlambat' => ['bg-red-100 text-red-700 border-red-200 pulse-dot', 'fa-exclamation-triangle', 'Terlambat'],
-                                        'dikembalikan' => ['bg-emerald-100 text-emerald-700 border-emerald-200', 'fa-check-circle', 'Dikembalikan'],
+                                        'dikembalikan' => ['bg-emerald-100 text-emerald-700 border-emerald-200', 'fa-check-circle', 'Selesai'],
                                     ];
                                     $badge = $status_badge[$actual_status];
                                     
@@ -542,6 +637,10 @@ $aset_list = mysqli_query($conn, "SELECT i.id, i.nama_barang_108, i.jumlah, i.sa
                                     } elseif($actual_status === 'terlambat') {
                                         $hari_sisa = floor((time() - strtotime($row['tanggal_kembali_rencana'])) / 86400);
                                     }
+                                    
+                                    // ✅ Hitung breakdown kondisi
+                                    $has_breakdown_pinjam = ($row['kondisi_baik_pinjam'] + $row['kondisi_rusak_ringan_pinjam'] + $row['kondisi_rusak_berat_pinjam'] + $row['kondisi_perbaikan_pinjam']) > 0;
+                                    $has_breakdown_kembali = ($row['kondisi_baik_kembali'] + $row['kondisi_rusak_ringan_kembali'] + $row['kondisi_rusak_berat_kembali'] + $row['kondisi_perbaikan_kembali']) > 0;
                             ?>
                             <tr class="hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors <?= $row_class ?>">
                                 <td class="px-4 py-4">
@@ -578,7 +677,7 @@ $aset_list = mysqli_query($conn, "SELECT i.id, i.nama_barang_108, i.jumlah, i.sa
                                             <i class="fas fa-arrow-right text-[8px]"></i>
                                             <span><?= date('d/m/y', strtotime($row['tanggal_pinjam'])) ?></span>
                                         </div>
-                                        <div class="flex items-center justify-center gap-1 <?= $actual_status === 'terlambat' ? 'text-red-600' : 'text-red-500' ?>">
+                                        <div class="flex items-center justify-center gap-1 text-red-500">
                                             <i class="fas fa-arrow-left text-[8px]"></i>
                                             <span class="font-semibold"><?= date('d/m/y', strtotime($row['tanggal_kembali_rencana'])) ?></span>
                                         </div>
@@ -591,6 +690,53 @@ $aset_list = mysqli_query($conn, "SELECT i.id, i.nama_barang_108, i.jumlah, i.sa
                                             <i class="fas fa-exclamation-circle"></i> +<?= $hari_sisa ?> hari
                                         </div>
                                         <?php endif; ?>
+                                        <?php if($row['tanggal_kembali_aktual']): ?>
+                                        <div class="text-[10px] text-emerald-600 mt-0.5">
+                                            <i class="fas fa-check"></i> <?= date('d/m/y', strtotime($row['tanggal_kembali_aktual'])) ?>
+                                        </div>
+                                        <?php endif; ?>
+                                    </div>
+                                </td>
+                                <td class="px-4 py-4">
+                                    <!-- ✅ TAMPILAN BREAKDOWN KONDISI -->
+                                    <div class="text-xs space-y-1">
+                                        <?php if($has_breakdown_pinjam): ?>
+                                        <div class="text-[10px] text-gray-500 dark:text-gray-400 font-semibold">Saat Pinjam:</div>
+                                        <div class="flex flex-wrap gap-1">
+                                            <?php if($row['kondisi_baik_pinjam'] > 0): ?>
+                                            <span class="px-1.5 py-0.5 bg-emerald-100 text-emerald-700 rounded text-[9px] font-semibold">✓<?= $row['kondisi_baik_pinjam'] ?></span>
+                                            <?php endif; ?>
+                                            <?php if($row['kondisi_rusak_ringan_pinjam'] > 0): ?>
+                                            <span class="px-1.5 py-0.5 bg-amber-100 text-amber-700 rounded text-[9px] font-semibold">⚠<?= $row['kondisi_rusak_ringan_pinjam'] ?></span>
+                                            <?php endif; ?>
+                                            <?php if($row['kondisi_rusak_berat_pinjam'] > 0): ?>
+                                            <span class="px-1.5 py-0.5 bg-red-100 text-red-700 rounded text-[9px] font-semibold">✗<?= $row['kondisi_rusak_berat_pinjam'] ?></span>
+                                            <?php endif; ?>
+                                            <?php if($row['kondisi_perbaikan_pinjam'] > 0): ?>
+                                            <span class="px-1.5 py-0.5 bg-blue-100 text-blue-700 rounded text-[9px] font-semibold">🔧<?= $row['kondisi_perbaikan_pinjam'] ?></span>
+                                            <?php endif; ?>
+                                        </div>
+                                        <?php else: ?>
+                                        <div class="text-[10px] text-gray-500 italic">Saat Pinjam: <?= $row['kondisi_sebelum'] ?: 'Baik' ?></div>
+                                        <?php endif; ?>
+                                        
+                                        <?php if($has_breakdown_kembali): ?>
+                                        <div class="text-[10px] text-gray-500 dark:text-gray-400 font-semibold mt-1">Saat Kembali:</div>
+                                        <div class="flex flex-wrap gap-1">
+                                            <?php if($row['kondisi_baik_kembali'] > 0): ?>
+                                            <span class="px-1.5 py-0.5 bg-emerald-100 text-emerald-700 rounded text-[9px] font-semibold">✓<?= $row['kondisi_baik_kembali'] ?></span>
+                                            <?php endif; ?>
+                                            <?php if($row['kondisi_rusak_ringan_kembali'] > 0): ?>
+                                            <span class="px-1.5 py-0.5 bg-amber-100 text-amber-700 rounded text-[9px] font-semibold">⚠<?= $row['kondisi_rusak_ringan_kembali'] ?></span>
+                                            <?php endif; ?>
+                                            <?php if($row['kondisi_rusak_berat_kembali'] > 0): ?>
+                                            <span class="px-1.5 py-0.5 bg-red-100 text-red-700 rounded text-[9px] font-semibold">✗<?= $row['kondisi_rusak_berat_kembali'] ?></span>
+                                            <?php endif; ?>
+                                            <?php if($row['kondisi_perbaikan_kembali'] > 0): ?>
+                                            <span class="px-1.5 py-0.5 bg-blue-100 text-blue-700 rounded text-[9px] font-semibold">🔧<?= $row['kondisi_perbaikan_kembali'] ?></span>
+                                            <?php endif; ?>
+                                        </div>
+                                        <?php endif; ?>
                                     </div>
                                 </td>
                                 <td class="px-4 py-4 text-center">
@@ -598,20 +744,9 @@ $aset_list = mysqli_query($conn, "SELECT i.id, i.nama_barang_108, i.jumlah, i.sa
                                         <i class="fas <?= $badge[1] ?> text-[10px]"></i>
                                         <?= $badge[2] ?>
                                     </span>
-                                    <?php if($row['kondisi_sebelum']): ?>
-                                    <div class="text-[10px] text-gray-500 mt-1">
-                                        <i class="fas fa-heart-pulse"></i> <?= $row['kondisi_sebelum'] ?>
-                                    </div>
-                                    <?php endif; ?>
                                 </td>
                                 <td class="px-4 py-4">
-                                    <div class="text-xs text-gray-700 dark:text-gray-300">
-                                        <div class="font-medium"><?= htmlspecialchars($row['petugas_input'] ?? '-') ?></div>
-                                        <div class="text-[10px] text-gray-500"><?= date('d/m/y H:i', strtotime($row['created_at'])) ?></div>
-                                    </div>
-                                </td>
-                                <td class="px-4 py-4">
-                                    <div class="flex items-center justify-center gap-1">
+                                    <div class="flex items-center justify-center gap-1 flex-wrap">
                                         <button onclick="showDetail(<?= $row['id'] ?>)" 
                                                 class="p-2 bg-blue-100 hover:bg-blue-500 text-blue-600 hover:text-white rounded-lg transition-all transform hover:scale-110"
                                                 title="Detail">
@@ -624,7 +759,7 @@ $aset_list = mysqli_query($conn, "SELECT i.id, i.nama_barang_108, i.jumlah, i.sa
                                                 title="Perpanjang">
                                             <i class="fas fa-calendar-plus text-xs"></i>
                                         </button>
-                                        <button onclick="openPengembalian(<?= $row['id'] ?>)" 
+                                        <button onclick="openPengembalian(<?= $row['id'] ?>, <?= $row['jumlah'] ?>)" 
                                                 class="p-2 bg-emerald-100 hover:bg-emerald-500 text-emerald-600 hover:text-white rounded-lg transition-all transform hover:scale-110"
                                                 title="Kembalikan">
                                             <i class="fas fa-undo text-xs"></i>
@@ -636,6 +771,15 @@ $aset_list = mysqli_query($conn, "SELECT i.id, i.nama_barang_108, i.jumlah, i.sa
                                            title="Cetak Surat">
                                             <i class="fas fa-print text-xs"></i>
                                         </a>
+                                        
+                                        <!-- ✅ TOMBOL HAPUS (BARU!) -->
+                                        <?php if(canDelete() && $actual_status !== 'dikembalikan'): ?>
+                                        <button onclick="confirmHapus(<?= $row['id'] ?>, '<?= htmlspecialchars(addslashes($row['peminjam'])) ?>', '<?= htmlspecialchars(addslashes($row['nama_barang_108'])) ?>')"
+                                                class="p-2 bg-red-100 hover:bg-red-500 text-red-600 hover:text-white rounded-lg transition-all transform hover:scale-110"
+                                                title="Hapus">
+                                            <i class="fas fa-trash text-xs"></i>
+                                        </button>
+                                        <?php endif; ?>
                                     </div>
                                 </td>
                             </tr>
@@ -644,7 +788,6 @@ $aset_list = mysqli_query($conn, "SELECT i.id, i.nama_barang_108, i.jumlah, i.sa
                     </table>
                 </div>
                 
-                <!-- Footer Info -->
                 <div class="p-4 border-t border-gray-200 dark:border-gray-700 bg-gray-50/50 dark:bg-gray-900/30 flex items-center justify-between text-xs text-gray-600 dark:text-gray-400">
                     <span><i class="fas fa-table-cells mr-1"></i> <?= mysqli_num_rows($result) ?> data ditampilkan</span>
                     <span><i class="fas fa-info-circle mr-1"></i> Klik icon untuk aksi</span>
@@ -656,7 +799,7 @@ $aset_list = mysqli_query($conn, "SELECT i.id, i.nama_barang_108, i.jumlah, i.sa
 </div>
 
 <!-- ============================================ -->
-<!-- ✅ MODAL: FORM PEMINJAMAN BARU -->
+<!-- ✅ MODAL: FORM PEMINJAMAN BARU (dengan breakdown kondisi) -->
 <!-- ============================================ -->
 <div id="modalPeminjaman" class="fixed inset-0 bg-black/60 backdrop-blur-sm z-[1000] hidden items-center justify-center p-4" style="display: none;">
     <div class="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl w-full max-w-3xl max-h-[90vh] overflow-hidden flex flex-col modal-enter">
@@ -667,7 +810,7 @@ $aset_list = mysqli_query($conn, "SELECT i.id, i.nama_barang_108, i.jumlah, i.sa
                 </div>
                 <div>
                     <h3 class="text-lg font-bold">Catat Peminjaman Baru</h3>
-                    <p class="text-xs text-white/80">Isi formulir peminjaman aset</p>
+                    <p class="text-xs text-white/80">Isi formulir peminjaman dengan breakdown kondisi</p>
                 </div>
             </div>
             <button onclick="closeModal('modalPeminjaman')" class="w-8 h-8 rounded-full bg-white/20 hover:bg-white/30 flex items-center justify-center transition-all">
@@ -675,7 +818,7 @@ $aset_list = mysqli_query($conn, "SELECT i.id, i.nama_barang_108, i.jumlah, i.sa
             </button>
         </div>
         
-        <form method="POST" class="flex-1 overflow-y-auto">
+        <form method="POST" class="flex-1 overflow-y-auto" id="formPeminjamanBaru">
             <div class="p-5 space-y-5">
                 
                 <!-- Pilih Aset -->
@@ -684,10 +827,10 @@ $aset_list = mysqli_query($conn, "SELECT i.id, i.nama_barang_108, i.jumlah, i.sa
                         <i class="fas fa-box text-primary"></i>
                         Pilih Aset yang Dipinjam <span class="text-red-500">*</span>
                     </label>
-                    <select name="inventaris_id" required class="w-full px-4 py-2.5 bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg focus:outline-none focus:border-primary text-sm">
+                    <select name="inventaris_id" id="selectAset" required onchange="updateJumlahMax()" class="w-full px-4 py-2.5 bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg focus:outline-none focus:border-primary text-sm">
                         <option value="">-- Pilih Aset --</option>
                         <?php while($aset = mysqli_fetch_assoc($aset_list)): ?>
-                        <option value="<?= $aset['id'] ?>" data-stok="<?= $aset['tersedia'] ?>">
+                        <option value="<?= $aset['id'] ?>" data-stok="<?= $aset['tersedia'] ?>" data-nama="<?= htmlspecialchars($aset['nama_barang_108']) ?>">
                             <?= htmlspecialchars($aset['nama_barang_108']) ?> (Tersedia: <?= $aset['tersedia'] ?> <?= $aset['satuan'] ?>)
                         </option>
                         <?php endwhile; ?>
@@ -730,26 +873,63 @@ $aset_list = mysqli_query($conn, "SELECT i.id, i.nama_barang_108, i.jumlah, i.sa
                         <input type="date" name="tanggal_kembali_rencana" required value="<?= date('Y-m-d', strtotime('+7 days')) ?>" class="w-full px-3 py-2 bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg focus:outline-none focus:border-primary text-sm">
                     </div>
                     <div>
-                        <label class="text-xs font-semibold text-gray-700 dark:text-gray-200 mb-1 block">Jumlah <span class="text-red-500">*</span></label>
-                        <input type="number" name="jumlah" required min="1" value="1" class="w-full px-3 py-2 bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg focus:outline-none focus:border-primary text-sm">
+                        <label class="text-xs font-semibold text-gray-700 dark:text-gray-200 mb-1 block">Jumlah Unit <span class="text-red-500">*</span></label>
+                        <input type="number" name="jumlah" id="inputJumlahPinjam" required min="1" value="1" 
+                               oninput="updateMaxBreakdown()"
+                               class="w-full px-3 py-2 bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg focus:outline-none focus:border-primary text-sm">
                     </div>
                 </div>
                 
-                <!-- Kondisi & Keperluan -->
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-                    <div>
-                        <label class="text-xs font-semibold text-gray-700 dark:text-gray-200 mb-1 block">Kondisi Saat Dipinjam</label>
-                        <select name="kondisi_sebelum" class="w-full px-3 py-2 bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg focus:outline-none focus:border-primary text-sm">
-                            <option value="Baik">✅ Baik</option>
-                            <option value="Rusak Ringan">⚠️ Rusak Ringan</option>
-                            <option value="Rusak Berat">❌ Rusak Berat</option>
-                            <option value="Dalam Perbaikan">🔧 Dalam Perbaikan</option>
-                        </select>
+                <!-- ✅ BREAKDOWN KONDISI SAAT DIPINJAM (BARU!) -->
+                <div class="bg-gradient-to-br from-amber-50 to-orange-50 dark:from-amber-900/20 dark:to-orange-900/20 rounded-lg p-4 border border-amber-200 dark:border-amber-800">
+                    <p class="text-xs font-bold text-amber-800 dark:text-amber-300 mb-3 flex items-center gap-1">
+                        <i class="fas fa-clipboard-list"></i> Breakdown Kondisi Saat Dipinjam
+                        <span class="text-[10px] font-normal">(Total harus sama dengan jumlah unit)</span>
+                    </p>
+                    <div class="grid grid-cols-2 md:grid-cols-4 gap-2">
+                        <div class="kondisi-input-group p-2 bg-emerald-50 dark:bg-emerald-900/20 rounded-lg border border-emerald-200 dark:border-emerald-800">
+                            <label class="text-[10px] font-semibold text-emerald-700 dark:text-emerald-300 block mb-1">
+                                <i class="fas fa-check-circle"></i> Baik
+                            </label>
+                            <input type="number" name="kondisi_baik_pinjam" id="pinjam_baik" min="0" value="0"
+                                   oninput="hitungTotalBreakdown('pinjam')"
+                                   class="w-full px-2 py-1.5 bg-white dark:bg-gray-700 border border-emerald-300 dark:border-emerald-700 rounded text-center text-sm font-bold text-emerald-700 dark:text-emerald-300 focus:outline-none">
+                        </div>
+                        <div class="kondisi-input-group p-2 bg-amber-50 dark:bg-amber-900/20 rounded-lg border border-amber-200 dark:border-amber-800">
+                            <label class="text-[10px] font-semibold text-amber-700 dark:text-amber-300 block mb-1">
+                                <i class="fas fa-exclamation-triangle"></i> Rusak Ringan
+                            </label>
+                            <input type="number" name="kondisi_rusak_ringan_pinjam" id="pinjam_rr" min="0" value="0"
+                                   oninput="hitungTotalBreakdown('pinjam')"
+                                   class="w-full px-2 py-1.5 bg-white dark:bg-gray-700 border border-amber-300 dark:border-amber-700 rounded text-center text-sm font-bold text-amber-700 dark:text-amber-300 focus:outline-none">
+                        </div>
+                        <div class="kondisi-input-group p-2 bg-red-50 dark:bg-red-900/20 rounded-lg border border-red-200 dark:border-red-800">
+                            <label class="text-[10px] font-semibold text-red-700 dark:text-red-300 block mb-1">
+                                <i class="fas fa-times-circle"></i> Rusak Berat
+                            </label>
+                            <input type="number" name="kondisi_rusak_berat_pinjam" id="pinjam_rb" min="0" value="0"
+                                   oninput="hitungTotalBreakdown('pinjam')"
+                                   class="w-full px-2 py-1.5 bg-white dark:bg-gray-700 border border-red-300 dark:border-red-700 rounded text-center text-sm font-bold text-red-700 dark:text-red-300 focus:outline-none">
+                        </div>
+                        <div class="kondisi-input-group p-2 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800">
+                            <label class="text-[10px] font-semibold text-blue-700 dark:text-blue-300 block mb-1">
+                                <i class="fas fa-wrench"></i> Perbaikan
+                            </label>
+                            <input type="number" name="kondisi_perbaikan_pinjam" id="pinjam_perbaikan" min="0" value="0"
+                                   oninput="hitungTotalBreakdown('pinjam')"
+                                   class="w-full px-2 py-1.5 bg-white dark:bg-gray-700 border border-blue-300 dark:border-blue-700 rounded text-center text-sm font-bold text-blue-700 dark:text-blue-300 focus:outline-none">
+                        </div>
                     </div>
-                    <div>
-                        <label class="text-xs font-semibold text-gray-700 dark:text-gray-200 mb-1 block">Keperluan</label>
-                        <input type="text" name="keperluan" placeholder="Contoh: Untuk kegiatan kelas" class="w-full px-3 py-2 bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg focus:outline-none focus:border-primary text-sm">
+                    
+                    <!-- Summary -->
+                    <div id="breakdownPinjamSummary" class="mt-3 p-2 rounded-lg text-center text-sm font-bold breakdown-invalid">
+                        Total: 0 / 1 unit
                     </div>
+                </div>
+                
+                <div>
+                    <label class="text-xs font-semibold text-gray-700 dark:text-gray-200 mb-1 block">Keperluan</label>
+                    <input type="text" name="keperluan" placeholder="Contoh: Untuk kegiatan kelas" class="w-full px-3 py-2 bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg focus:outline-none focus:border-primary text-sm">
                 </div>
                 
                 <div>
@@ -763,9 +943,8 @@ $aset_list = mysqli_query($conn, "SELECT i.id, i.nama_barang_108, i.jumlah, i.sa
                 <button type="button" onclick="closeModal('modalPeminjaman')" class="px-4 py-2 bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-200 rounded-lg text-sm font-semibold transition-all">
                     Batal
                 </button>
-                <button type="submit" name="tambah_peminjaman" class="px-5 py-2 bg-gradient-to-r from-primary to-primary-light hover:from-primary-dark hover:to-primary text-white rounded-lg shadow-md text-sm font-semibold transition-all flex items-center gap-2">
-                    <i class="fas fa-save"></i>
-                    Simpan Peminjaman
+                <button type="submit" name="tambah_peminjaman" id="btnSimpanPinjam" class="px-5 py-2 bg-gradient-to-r from-primary to-primary-light hover:from-primary-dark hover:to-primary text-white rounded-lg shadow-md text-sm font-semibold transition-all flex items-center gap-2">
+                    <i class="fas fa-save"></i> Simpan Peminjaman
                 </button>
             </div>
         </form>
@@ -773,10 +952,10 @@ $aset_list = mysqli_query($conn, "SELECT i.id, i.nama_barang_108, i.jumlah, i.sa
 </div>
 
 <!-- ============================================ -->
-<!-- ✅ MODAL: PENGEMBALIAN -->
+<!-- ✅ MODAL: PENGEMBALIAN (dengan breakdown kondisi) -->
 <!-- ============================================ -->
 <div id="modalPengembalian" class="fixed inset-0 bg-black/60 backdrop-blur-sm z-[1000] hidden items-center justify-center p-4" style="display: none;">
-    <div class="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden modal-enter">
+    <div class="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-hidden flex flex-col modal-enter">
         <div class="p-5 border-b border-gray-200 dark:border-gray-700 bg-gradient-to-r from-emerald-500 to-emerald-600 text-white flex items-center justify-between">
             <div class="flex items-center gap-3">
                 <div class="w-10 h-10 bg-white/20 rounded-lg flex items-center justify-center">
@@ -784,7 +963,7 @@ $aset_list = mysqli_query($conn, "SELECT i.id, i.nama_barang_108, i.jumlah, i.sa
                 </div>
                 <div>
                     <h3 class="text-lg font-bold">Pengembalian Aset</h3>
-                    <p class="text-xs text-white/80">Catat pengembalian aset</p>
+                    <p class="text-xs text-white/80">Catat kondisi aset saat dikembalikan</p>
                 </div>
             </div>
             <button onclick="closeModal('modalPengembalian')" class="w-8 h-8 rounded-full bg-white/20 hover:bg-white/30 flex items-center justify-center transition-all">
@@ -792,61 +971,95 @@ $aset_list = mysqli_query($conn, "SELECT i.id, i.nama_barang_108, i.jumlah, i.sa
             </button>
         </div>
         
-        <form method="POST" class="p-5 space-y-4">
-            <input type="hidden" name="id" id="pengembalian_id">
-            <input type="hidden" name="tab" value="<?= htmlspecialchars($tab) ?>">
-            
-            <div>
-                <label class="text-xs font-semibold text-gray-700 dark:text-gray-200 mb-1 block">Tanggal Dikembalikan <span class="text-red-500">*</span></label>
-                <input type="date" name="tanggal_kembali_aktual" required value="<?= date('Y-m-d') ?>" class="w-full px-3 py-2 bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg focus:outline-none focus:border-primary text-sm">
-            </div>
-            
-            <div>
-                <label class="text-xs font-semibold text-gray-700 dark:text-gray-200 mb-2 block">Kondisi Saat Dikembalikan <span class="text-red-500">*</span></label>
-                <div class="grid grid-cols-2 gap-2">
-                    <label class="cursor-pointer">
-                        <input type="radio" name="kondisi_sesudah" value="Baik" required class="hidden peer">
-                        <div class="p-3 border-2 border-gray-200 dark:border-gray-600 rounded-lg peer-checked:border-emerald-500 peer-checked:bg-emerald-50 dark:peer-checked:bg-emerald-900/20 transition-all text-center">
-                            <i class="fas fa-check-circle text-emerald-500 text-xl mb-1"></i>
-                            <div class="text-xs font-semibold">Baik</div>
+        <form method="POST" class="flex-1 overflow-y-auto">
+            <div class="p-5 space-y-4">
+                <input type="hidden" name="id" id="pengembalian_id">
+                <input type="hidden" name="tab" value="<?= htmlspecialchars($tab) ?>">
+                
+                <!-- Info Aset -->
+                <div class="bg-blue-50 dark:bg-blue-900/20 rounded-lg p-3 border border-blue-200 dark:border-blue-800">
+                    <div class="flex items-center gap-3">
+                        <div class="w-10 h-10 bg-blue-500 rounded-lg flex items-center justify-center text-white">
+                            <i class="fas fa-box"></i>
                         </div>
-                    </label>
-                    <label class="cursor-pointer">
-                        <input type="radio" name="kondisi_sesudah" value="Rusak Ringan" class="hidden peer">
-                        <div class="p-3 border-2 border-gray-200 dark:border-gray-600 rounded-lg peer-checked:border-amber-500 peer-checked:bg-amber-50 dark:peer-checked:bg-amber-900/20 transition-all text-center">
-                            <i class="fas fa-exclamation-triangle text-amber-500 text-xl mb-1"></i>
-                            <div class="text-xs font-semibold">Rusak Ringan</div>
+                        <div class="flex-1">
+                            <p class="text-xs text-blue-600 dark:text-blue-300">Aset yang dikembalikan</p>
+                            <p class="font-bold text-gray-800 dark:text-white" id="infoAsetNama">-</p>
+                            <p class="text-xs text-gray-600 dark:text-gray-400">Jumlah: <strong id="infoAsetJumlah">0</strong> unit</p>
                         </div>
-                    </label>
-                    <label class="cursor-pointer">
-                        <input type="radio" name="kondisi_sesudah" value="Rusak Berat" class="hidden peer">
-                        <div class="p-3 border-2 border-gray-200 dark:border-gray-600 rounded-lg peer-checked:border-red-500 peer-checked:bg-red-50 dark:peer-checked:bg-red-900/20 transition-all text-center">
-                            <i class="fas fa-times-circle text-red-500 text-xl mb-1"></i>
-                            <div class="text-xs font-semibold">Rusak Berat</div>
+                    </div>
+                </div>
+                
+                <div>
+                    <label class="text-xs font-semibold text-gray-700 dark:text-gray-200 mb-1 block">Tanggal Dikembalikan <span class="text-red-500">*</span></label>
+                    <input type="date" name="tanggal_kembali_aktual" required value="<?= date('Y-m-d') ?>" class="w-full px-3 py-2 bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg focus:outline-none focus:border-primary text-sm">
+                </div>
+                
+                <!-- ✅ BREAKDOWN KONDISI SAAT DIKEMBALIKAN (BARU!) -->
+                <div class="bg-gradient-to-br from-emerald-50 to-teal-50 dark:from-emerald-900/20 dark:to-teal-900/20 rounded-lg p-4 border border-emerald-200 dark:border-emerald-800">
+                    <p class="text-xs font-bold text-emerald-800 dark:text-emerald-300 mb-3 flex items-center gap-1">
+                        <i class="fas fa-clipboard-check"></i> Breakdown Kondisi Saat Dikembalikan
+                        <span class="text-[10px] font-normal">(Total harus sama dengan jumlah unit)</span>
+                    </p>
+                    <div class="grid grid-cols-2 gap-2">
+                        <div class="kondisi-input-group p-2 bg-emerald-50 dark:bg-emerald-900/20 rounded-lg border border-emerald-200 dark:border-emerald-800">
+                            <label class="text-[10px] font-semibold text-emerald-700 dark:text-emerald-300 block mb-1">
+                                <i class="fas fa-check-circle"></i> Baik
+                            </label>
+                            <input type="number" name="kondisi_baik_kembali" id="kembali_baik" min="0" value="0"
+                                   oninput="hitungTotalBreakdown('kembali')"
+                                   class="w-full px-2 py-1.5 bg-white dark:bg-gray-700 border border-emerald-300 dark:border-emerald-700 rounded text-center text-sm font-bold text-emerald-700 dark:text-emerald-300 focus:outline-none">
                         </div>
-                    </label>
-                    <label class="cursor-pointer">
-                        <input type="radio" name="kondisi_sesudah" value="Dalam Perbaikan" class="hidden peer">
-                        <div class="p-3 border-2 border-gray-200 dark:border-gray-600 rounded-lg peer-checked:border-blue-500 peer-checked:bg-blue-50 dark:peer-checked:bg-blue-900/20 transition-all text-center">
-                            <i class="fas fa-wrench text-blue-500 text-xl mb-1"></i>
-                            <div class="text-xs font-semibold">Perbaikan</div>
+                        <div class="kondisi-input-group p-2 bg-amber-50 dark:bg-amber-900/20 rounded-lg border border-amber-200 dark:border-amber-800">
+                            <label class="text-[10px] font-semibold text-amber-700 dark:text-amber-300 block mb-1">
+                                <i class="fas fa-exclamation-triangle"></i> Rusak Ringan
+                            </label>
+                            <input type="number" name="kondisi_rusak_ringan_kembali" id="kembali_rr" min="0" value="0"
+                                   oninput="hitungTotalBreakdown('kembali')"
+                                   class="w-full px-2 py-1.5 bg-white dark:bg-gray-700 border border-amber-300 dark:border-amber-700 rounded text-center text-sm font-bold text-amber-700 dark:text-amber-300 focus:outline-none">
                         </div>
-                    </label>
+                        <div class="kondisi-input-group p-2 bg-red-50 dark:bg-red-900/20 rounded-lg border border-red-200 dark:border-red-800">
+                            <label class="text-[10px] font-semibold text-red-700 dark:text-red-300 block mb-1">
+                                <i class="fas fa-times-circle"></i> Rusak Berat
+                            </label>
+                            <input type="number" name="kondisi_rusak_berat_kembali" id="kembali_rb" min="0" value="0"
+                                   oninput="hitungTotalBreakdown('kembali')"
+                                   class="w-full px-2 py-1.5 bg-white dark:bg-gray-700 border border-red-300 dark:border-red-700 rounded text-center text-sm font-bold text-red-700 dark:text-red-300 focus:outline-none">
+                        </div>
+                        <div class="kondisi-input-group p-2 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800">
+                            <label class="text-[10px] font-semibold text-blue-700 dark:text-blue-300 block mb-1">
+                                <i class="fas fa-wrench"></i> Perbaikan
+                            </label>
+                            <input type="number" name="kondisi_perbaikan_kembali" id="kembali_perbaikan" min="0" value="0"
+                                   oninput="hitungTotalBreakdown('kembali')"
+                                   class="w-full px-2 py-1.5 bg-white dark:bg-gray-700 border border-blue-300 dark:border-blue-700 rounded text-center text-sm font-bold text-blue-700 dark:text-blue-300 focus:outline-none">
+                        </div>
+                    </div>
+                    
+                    <!-- Summary -->
+                    <div id="breakdownKembaliSummary" class="mt-3 p-2 rounded-lg text-center text-sm font-bold breakdown-invalid">
+                        Total: 0 / 0 unit
+                    </div>
+                    
+                    <!-- Peringatan jika ada kerusakan -->
+                    <div id="peringatanKerusakan" class="mt-2 p-2 bg-red-100 dark:bg-red-900/30 border border-red-300 dark:border-red-700 rounded-lg text-xs text-red-700 dark:text-red-300 hidden">
+                        <i class="fas fa-exclamation-triangle mr-1"></i>
+                        <strong>Perhatian:</strong> Ada unit yang rusak saat dikembalikan. Kondisi inventaris akan otomatis diupdate!
+                    </div>
+                </div>
+                
+                <div>
+                    <label class="text-xs font-semibold text-gray-700 dark:text-gray-200 mb-1 block">Catatan Pengembalian</label>
+                    <textarea name="catatan_pengembalian" rows="2" placeholder="Catatan kondisi aset saat dikembalikan..." class="w-full px-3 py-2 bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg focus:outline-none focus:border-primary text-sm resize-none"></textarea>
                 </div>
             </div>
             
-            <div>
-                <label class="text-xs font-semibold text-gray-700 dark:text-gray-200 mb-1 block">Catatan Pengembalian</label>
-                <textarea name="catatan_pengembalian" rows="2" placeholder="Catatan kondisi aset saat dikembalikan..." class="w-full px-3 py-2 bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg focus:outline-none focus:border-primary text-sm resize-none"></textarea>
-            </div>
-            
-            <div class="flex items-center justify-end gap-2 pt-2">
+            <div class="p-4 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/50 flex items-center justify-end gap-2">
                 <button type="button" onclick="closeModal('modalPengembalian')" class="px-4 py-2 bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-200 rounded-lg text-sm font-semibold transition-all">
                     Batal
                 </button>
-                <button type="submit" name="kembalikan_peminjaman" class="px-5 py-2 bg-gradient-to-r from-emerald-500 to-emerald-600 hover:from-emerald-600 hover:to-emerald-700 text-white rounded-lg shadow-md text-sm font-semibold transition-all flex items-center gap-2">
-                    <i class="fas fa-check"></i>
-                    Konfirmasi Pengembalian
+                <button type="submit" name="kembalikan_peminjaman" id="btnSimpanKembali" class="px-5 py-2 bg-gradient-to-r from-emerald-500 to-emerald-600 hover:from-emerald-600 hover:to-emerald-700 text-white rounded-lg shadow-md text-sm font-semibold transition-all flex items-center gap-2">
+                    <i class="fas fa-check"></i> Konfirmasi Pengembalian
                 </button>
             </div>
         </form>
@@ -886,8 +1099,7 @@ $aset_list = mysqli_query($conn, "SELECT i.id, i.nama_barang_108, i.jumlah, i.sa
                     Batal
                 </button>
                 <button type="submit" name="perpanjang_peminjaman" class="px-5 py-2 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-white rounded-lg shadow-md text-sm font-semibold transition-all flex items-center gap-2">
-                    <i class="fas fa-calendar-check"></i>
-                    Perpanjang
+                    <i class="fas fa-calendar-check"></i> Perpanjang
                 </button>
             </div>
         </form>
@@ -910,9 +1122,7 @@ $aset_list = mysqli_query($conn, "SELECT i.id, i.nama_barang_108, i.jumlah, i.sa
                 <i class="fas fa-times"></i>
             </button>
         </div>
-        <div id="detailContent" class="flex-1 overflow-y-auto p-5">
-            <!-- Content akan diisi via AJAX -->
-        </div>
+        <div id="detailContent" class="flex-1 overflow-y-auto p-5"></div>
     </div>
 </div>
 
@@ -961,10 +1171,84 @@ function closeModal(id) {
 
 function openFormPeminjaman() {
     openModal('modalPeminjaman');
+    // Reset form
+    document.getElementById('formPeminjamanBaru').reset();
+    hitungTotalBreakdown('pinjam');
 }
 
-function openPengembalian(id) {
+// ✅ Update max breakdown saat jumlah berubah
+function updateMaxBreakdown() {
+    const jumlah = parseInt(document.getElementById('inputJumlahPinjam').value) || 0;
+    ['pinjam_baik', 'pinjam_rr', 'pinjam_rb', 'pinjam_perbaikan'].forEach(id => {
+        document.getElementById(id).max = jumlah;
+    });
+    hitungTotalBreakdown('pinjam');
+}
+
+// ✅ Hitung total breakdown
+function hitungTotalBreakdown(prefix) {
+    const baik = parseInt(document.getElementById(`${prefix}_baik`)?.value) || 0;
+    const rr = parseInt(document.getElementById(`${prefix}_rr`)?.value) || 0;
+    const rb = parseInt(document.getElementById(`${prefix}_rb`)?.value) || 0;
+    const perbaikan = parseInt(document.getElementById(`${prefix}_perbaikan`)?.value) || 0;
+    const total = baik + rr + rb + perbaikan;
+    
+    let targetJumlah = 0;
+    if(prefix === 'pinjam') {
+        targetJumlah = parseInt(document.getElementById('inputJumlahPinjam')?.value) || 0;
+    } else if(prefix === 'kembali') {
+        targetJumlah = parseInt(document.getElementById('infoAsetJumlah')?.textContent) || 0;
+    }
+    
+    const summaryEl = document.getElementById(`breakdown${prefix.charAt(0).toUpperCase() + prefix.slice(1)}Summary`);
+    if(summaryEl) {
+        summaryEl.textContent = `Total: ${total} / ${targetJumlah} unit`;
+        if(total === targetJumlah && total > 0) {
+            summaryEl.className = 'mt-3 p-2 rounded-lg text-center text-sm font-bold breakdown-valid';
+        } else {
+            summaryEl.className = 'mt-3 p-2 rounded-lg text-center text-sm font-bold breakdown-invalid';
+        }
+    }
+    
+    // Peringatan kerusakan untuk pengembalian
+    if(prefix === 'kembali') {
+        const peringatan = document.getElementById('peringatanKerusakan');
+        if(peringatan) {
+            if(rr > 0 || rb > 0 || perbaikan > 0) {
+                peringatan.classList.remove('hidden');
+            } else {
+                peringatan.classList.add('hidden');
+            }
+        }
+    }
+    
+    // Disable submit button jika tidak valid
+    const btnPinjam = document.getElementById('btnSimpanPinjam');
+    const btnKembali = document.getElementById('btnSimpanKembali');
+    
+    if(prefix === 'pinjam' && btnPinjam) {
+        btnPinjam.disabled = (total !== targetJumlah);
+        btnPinjam.classList.toggle('opacity-50', total !== targetJumlah);
+        btnPinjam.classList.toggle('cursor-not-allowed', total !== targetJumlah);
+    }
+    if(prefix === 'kembali' && btnKembali) {
+        btnKembali.disabled = (total !== targetJumlah);
+        btnKembali.classList.toggle('opacity-50', total !== targetJumlah);
+        btnKembali.classList.toggle('cursor-not-allowed', total !== targetJumlah);
+    }
+}
+
+// ✅ Open pengembalian dengan info jumlah
+function openPengembalian(id, jumlah) {
     document.getElementById('pengembalian_id').value = id;
+    document.getElementById('infoAsetJumlah').textContent = jumlah;
+    
+    // Reset breakdown
+    ['kembali_baik', 'kembali_rr', 'kembali_rb', 'kembali_perbaikan'].forEach(id => {
+        document.getElementById(id).value = 0;
+    });
+    hitungTotalBreakdown('kembali');
+    
     openModal('modalPengembalian');
 }
 
@@ -974,8 +1258,34 @@ function openPerpanjang(id, tanggalLama) {
     openModal('modalPerpanjang');
 }
 
+// ✅ Konfirmasi hapus
+function confirmHapus(id, peminjam, aset) {
+    Swal.fire({
+        title: 'Hapus Peminjaman?',
+        html: `
+            <div class="text-left text-sm space-y-2 mt-3">
+                <p><strong>Peminjam:</strong> ${peminjam}</p>
+                <p><strong>Aset:</strong> ${aset}</p>
+            </div>
+            <div class="mt-4 p-3 bg-red-50 dark:bg-red-900/20 rounded-lg text-xs text-red-700 dark:text-red-300">
+                <i class="fas fa-exclamation-triangle mr-1"></i>
+                <strong>Perhatian:</strong> Data peminjaman dan riwayat tracking terkait akan dihapus permanen!
+            </div>
+        `,
+        icon: 'warning',
+        showCancelButton: true,
+        confirmButtonColor: '#e53e3e',
+        cancelButtonColor: '#718096',
+        confirmButtonText: 'Ya, Hapus!',
+        cancelButtonText: 'Batal'
+    }).then((result) => {
+        if (result.isConfirmed) {
+            window.location.href = `?hapus=${id}&tab=<?= $tab ?>`;
+        }
+    });
+}
+
 function showDetail(id) {
-    // Fetch detail via AJAX
     fetch(`api_peminjaman_detail.php?id=${id}`)
         .then(r => r.text())
         .then(html => {
@@ -1002,6 +1312,11 @@ document.addEventListener('keydown', (e) => {
     document.getElementById(id)?.addEventListener('click', function(e) {
         if (e.target === this) closeModal(id);
     });
+});
+
+// Init breakdown on page load
+document.addEventListener('DOMContentLoaded', () => {
+    hitungTotalBreakdown('pinjam');
 });
 </script>
 

@@ -1,6 +1,19 @@
 <?php
-require 'config.php';
+require_once 'config.php';
 
+// Cek notifikasi arsip bulanan
+$notif_arsip = cek_waktu_arsip();
+
+// Proses tunda notifikasi
+if(isset($_GET['tunda_notif'])) {
+    $bulan = intval($_GET['bulan'] ?? $notif_arsip['bulan']);
+    $tahun = intval($_GET['tahun'] ?? $notif_arsip['tahun']);
+    update_status_notifikasi_arsip($bulan, $tahun, 'dismissed');
+    header("Location: dashboard.php");
+    exit;
+}
+
+// config already loaded above
 $current_page = basename($_SERVER['PHP_SELF']);
 
 if(!isset($_SESSION['login'])) {
@@ -612,6 +625,93 @@ function formatUnit($angka) {
                     </div>
                 </div>
                 
+               
+                <?php if($notif_arsip['show']): ?>
+                <div class="relative bg-gradient-to-br from-red-500 via-orange-500 to-yellow-500 rounded-2xl shadow-2xl overflow-hidden animate-pulse-slow">
+                    <!-- Animated Background -->
+                    <div class="absolute inset-0 opacity-20">
+                        <div class="absolute top-0 left-0 w-full h-full" 
+                            style="background: radial-gradient(circle at 20% 50%, white 0%, transparent 50%), radial-gradient(circle at 80% 80%, white 0%, transparent 50%); animation: pulse 3s infinite;"></div>
+                    </div>
+                    
+                    <div class="relative p-6 lg:p-8">
+                        <div class="flex flex-col lg:flex-row lg:items-center gap-6">
+                            <!-- Icon Besar -->
+                            <div class="flex-shrink-0">
+                                <div class="relative">
+                                    <div class="w-24 h-24 bg-white/20 backdrop-blur rounded-full flex items-center justify-center animate-bounce">
+                                        <i class="fas fa-bell text-5xl text-white"></i>
+                                    </div>
+                                    <div class="absolute -top-2 -right-2 w-8 h-8 bg-red-600 rounded-full flex items-center justify-center animate-ping">
+                                        <i class="fas fa-exclamation text-white text-sm"></i>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <!-- Content -->
+                            <div class="flex-1 text-white">
+                                <div class="flex items-center gap-2 mb-2">
+                                    <span class="px-3 py-1 bg-white/20 backdrop-blur rounded-full text-xs font-bold uppercase tracking-wider">
+                                        <i class="fas fa-calendar-alt mr-1"></i> Reminder Bulanan
+                                    </span>
+                                    <?php if($notif_arsip['status'] === 'dismissed'): ?>
+                                    <span class="px-3 py-1 bg-blue-500 rounded-full text-xs font-bold uppercase tracking-wider">
+                                        <i class="fas fa-eye-slash mr-1"></i> Ditunda
+                                    </span>
+                                    <?php endif; ?>
+                                </div>
+                                
+                                <h3 class="text-2xl lg:text-3xl font-bold mb-2">
+                                    📋 Saatnya Buat Arsip <?= $notif_arsip['nama_bulan'] ?> <?= $notif_arsip['tahun'] ?>!
+                                </h3>
+                                
+                                <p class="text-white/90 mb-4">
+                                    Terdapat <strong class="text-yellow-300 text-lg"><?= $notif_arsip['jumlah_data'] ?> transaksi peminjaman</strong> 
+                                    (<strong><?= $notif_arsip['total_unit'] ?> unit</strong>) pada bulan <?= $notif_arsip['nama_bulan'] ?> <?= $notif_arsip['tahun'] ?> 
+                                    yang perlu diarsipkan untuk laporan operator.
+                                </p>
+                                
+                                <!-- Info Box -->
+                                <div class="bg-white/10 backdrop-blur rounded-lg p-3 mb-4 text-sm">
+                                    <p class="text-white/90">
+                                        <i class="fas fa-info-circle mr-1"></i>
+                                        Notifikasi ini muncul karena hari ini sudah melewati <strong>tanggal <?= $notif_arsip['tanggal_setting'] ?></strong> 
+                                        (tanggal setting arsip bulanan).
+                                    </p>
+                                </div>
+                                
+                                <!-- Action Buttons -->
+                                <div class="flex flex-wrap gap-3">
+                                    <a href="laporan_peminjaman.php" 
+                                    class="px-6 py-3 bg-white text-orange-600 hover:bg-gray-100 rounded-lg shadow-lg hover:shadow-xl transition-all font-bold flex items-center gap-2">
+                                        <i class="fas fa-archive"></i>
+                                        <span>Buat Arsip Sekarang</span>
+                                        <i class="fas fa-arrow-right"></i>
+                                    </a>
+                                    <a href="?tunda_notif=1&bulan=<?= $notif_arsip['bulan'] ?>&tahun=<?= $notif_arsip['tahun'] ?>" 
+                                    onclick="return confirm('Tunda notifikasi ini? Anda bisa buat arsip nanti di menu Laporan Bulanan.')"
+                                    class="px-6 py-3 bg-white/20 backdrop-blur hover:bg-white/30 text-white rounded-lg shadow-lg hover:shadow-xl transition-all font-semibold flex items-center gap-2">
+                                        <i class="fas fa-clock"></i>
+                                        <span>Tunda Nanti</span>
+                                    </a>
+                                    <?php if(isAdmin()): ?>
+                                    <a href="pengaturan_arsip.php" 
+                                    class="px-6 py-3 bg-white/20 backdrop-blur hover:bg-white/30 text-white rounded-lg shadow-lg hover:shadow-xl transition-all font-semibold flex items-center gap-2">
+                                        <i class="fas fa-cog"></i>
+                                        <span>Setting Tanggal</span>
+                                    </a>
+                                    <?php endif; ?>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Decorative Elements -->
+                    <div class="absolute top-0 right-0 w-32 h-32 bg-white/5 rounded-full -translate-y-16 translate-x-16"></div>
+                    <div class="absolute bottom-0 left-0 w-48 h-48 bg-white/5 rounded-full translate-y-24 -translate-x-24"></div>
+                </div>
+                <?php endif; ?>
+
                 <!-- Table -->
                 <div class="overflow-x-auto">
                     <table class="w-full">

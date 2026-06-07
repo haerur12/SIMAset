@@ -15,11 +15,41 @@ if(!isset($_SESSION['login'])) {
     exit;
 }
 
-// Statistik untuk Preview
-$total_aset = mysqli_query($conn, "SELECT COUNT(*) as total FROM inventaris")->fetch_assoc()['total'];
-$total_pemerintah = mysqli_query($conn, "SELECT COUNT(*) as total FROM inventaris WHERE sumber_pengadaan = 'Pemerintah'")->fetch_assoc()['total'];
-$total_sekolah = mysqli_query($conn, "SELECT COUNT(*) as total FROM inventaris WHERE sumber_pengadaan = 'Sekolah'")->fetch_assoc()['total'];
-$total_nilai = mysqli_query($conn, "SELECT SUM(total) as total FROM inventaris")->fetch_assoc()['total'];
+// ============================================
+// ✅ STATISTIK BREAKDOWN (SAMA SEPERTI DASHBOARD)
+// ============================================
+
+// Total unit semua aset (SUM jumlah, bukan COUNT)
+$total_unit = mysqli_query($conn, "SELECT COALESCE(SUM(jumlah), 0) as total FROM inventaris")->fetch_assoc()['total'];
+$total_record = mysqli_query($conn, "SELECT COUNT(*) as total FROM inventaris")->fetch_assoc()['total'];
+
+// Total unit per sumber pengadaan (SUM jumlah)
+$total_pemerintah = mysqli_query($conn, "SELECT COALESCE(SUM(jumlah), 0) as total FROM inventaris WHERE sumber_pengadaan = 'Pemerintah'")->fetch_assoc()['total'];
+$total_sekolah = mysqli_query($conn, "SELECT COALESCE(SUM(jumlah), 0) as total FROM inventaris WHERE sumber_pengadaan = 'Sekolah'")->fetch_assoc()['total'];
+$total_bos = mysqli_query($conn, "SELECT COALESCE(SUM(jumlah), 0) as total FROM inventaris WHERE sumber_pengadaan = 'BOS'")->fetch_assoc()['total'];
+$total_dak = mysqli_query($conn, "SELECT COALESCE(SUM(jumlah), 0) as total FROM inventaris WHERE sumber_pengadaan = 'DAK'")->fetch_assoc()['total'];
+$total_apbd = mysqli_query($conn, "SELECT COALESCE(SUM(jumlah), 0) as total FROM inventaris WHERE sumber_pengadaan = 'APBD'")->fetch_assoc()['total'];
+
+// Total nilai
+$total_nilai = mysqli_query($conn, "SELECT COALESCE(SUM(total), 0) as total FROM inventaris")->fetch_assoc()['total'];
+
+// Rata-rata nilai per unit
+$rata_rata_nilai = $total_unit > 0 ? round($total_nilai / $total_unit) : 0;
+
+// Persentase per sumber
+$persen_pemerintah = $total_unit > 0 ? round(($total_pemerintah / $total_unit) * 100) : 0;
+$persen_sekolah = $total_unit > 0 ? round(($total_sekolah / $total_unit) * 100) : 0;
+$persen_bos = $total_unit > 0 ? round(($total_bos / $total_unit) * 100) : 0;
+$persen_dak = $total_unit > 0 ? round(($total_dak / $total_unit) * 100) : 0;
+$persen_apbd = $total_unit > 0 ? round(($total_apbd / $total_unit) * 100) : 0;
+
+// Jumlah sumber yang aktif
+$sumber_aktif = 0;
+if($total_pemerintah > 0) $sumber_aktif++;
+if($total_sekolah > 0) $sumber_aktif++;
+if($total_bos > 0) $sumber_aktif++;
+if($total_dak > 0) $sumber_aktif++;
+if($total_apbd > 0) $sumber_aktif++;
 
 // Search untuk Preview
 $search = isset($_GET['search']) ? mysqli_real_escape_string($conn, $_GET['search']) : '';
@@ -40,14 +70,12 @@ $estimated_size_pdf = ($total_records * 3.5) + 50;
 // ✅ EXPORT PDF MODE
 // ============================================
 if($download_pdf) {
-    // Setup Dompdf
     $options = new Options();
     $options->set('isHtml5ParserEnabled', true);
     $options->set('isRemoteEnabled', true);
     $options->set('defaultFont', 'Arial');
     $dompdf = new Dompdf($options);
     
-    // Hitung grand total
     $grand_total = 0;
     $data_rows = [];
     mysqli_data_seek($result, 0);
@@ -56,123 +84,42 @@ if($download_pdf) {
         $data_rows[] = $row;
     }
     
-    // Generate HTML untuk PDF
     $html = '<!DOCTYPE html>
 <html>
 <head>
     <meta charset="utf-8">
     <style>
-        @page {
-            margin: 1.5cm 1cm;
-            size: A4 landscape;
-        }
-        body {
-            font-family: Arial, sans-serif;
-            font-size: 10px;
-            line-height: 1.3;
-            color: #333;
-        }
-        .header {
-            text-align: center;
-            margin-bottom: 15px;
-            border-bottom: 3px solid #1a365d;
-            padding-bottom: 10px;
-        }
-        .header h1 {
-            margin: 0 0 3px 0;
-            font-size: 16px;
-            color: #1a365d;
-            text-transform: uppercase;
-        }
-        .header h2 {
-            margin: 0 0 3px 0;
-            font-size: 13px;
-            color: #2c5282;
-        }
-        .header p {
-            margin: 2px 0;
-            font-size: 9px;
-            color: #666;
-        }
-        .stats-box {
-            background-color: #f0f4f8;
-            padding: 8px;
-            border-radius: 4px;
-            margin-bottom: 10px;
-            border-left: 3px solid #1a365d;
-            font-size: 9px;
-        }
-        .stats-box strong {
-            color: #1a365d;
-        }
-        table {
-            width: 100%;
-            border-collapse: collapse;
-            font-size: 8px;
-        }
-        table th {
-            background-color: #1a365d;
-            color: white;
-            padding: 5px 3px;
-            text-align: left;
-            font-size: 8px;
-            border: 1px solid #0f2744;
-        }
-        table td {
-            padding: 4px 3px;
-            border: 1px solid #ddd;
-            vertical-align: top;
-        }
-        table tr:nth-child(even) td {
-            background-color: #f8fafc;
-        }
+        @page { margin: 1.5cm 1cm; size: A4 landscape; }
+        body { font-family: Arial, sans-serif; font-size: 10px; line-height: 1.3; color: #333; }
+        .header { text-align: center; margin-bottom: 15px; border-bottom: 3px solid #1a365d; padding-bottom: 10px; }
+        .header h1 { margin: 0 0 3px 0; font-size: 16px; color: #1a365d; text-transform: uppercase; }
+        .header h2 { margin: 0 0 3px 0; font-size: 13px; color: #2c5282; }
+        .header p { margin: 2px 0; font-size: 9px; color: #666; }
+        .stats-box { background-color: #f0f4f8; padding: 10px; border-radius: 4px; margin-bottom: 10px; border-left: 3px solid #1a365d; font-size: 9px; }
+        .stats-box strong { color: #1a365d; }
+        .stats-grid { display: table; width: 100%; margin-top: 8px; }
+        .stats-row { display: table-row; }
+        .stats-cell { display: table-cell; padding: 5px; text-align: center; border: 1px solid #ddd; background: white; }
+        .stats-cell .label { font-size: 8px; color: #666; text-transform: uppercase; }
+        .stats-cell .value { font-size: 14px; font-weight: bold; color: #1a365d; }
+        table { width: 100%; border-collapse: collapse; font-size: 8px; }
+        table th { background-color: #1a365d; color: white; padding: 5px 3px; text-align: left; font-size: 8px; border: 1px solid #0f2744; }
+        table td { padding: 4px 3px; border: 1px solid #ddd; vertical-align: top; }
+        table tr:nth-child(even) td { background-color: #f8fafc; }
         .text-center { text-align: center; }
         .text-right { text-align: right; }
         .wrap { word-wrap: break-word; max-width: 120px; }
-        .badge {
-            display: inline-block;
-            padding: 2px 5px;
-            border-radius: 2px;
-            font-size: 7px;
-            font-weight: bold;
-            color: white;
-        }
+        .badge { display: inline-block; padding: 2px 5px; border-radius: 2px; font-size: 7px; font-weight: bold; color: white; }
         .badge-pemerintah { background-color: #1a365d; }
         .badge-sekolah { background-color: #d69e2e; }
         .badge-bos { background-color: #38a169; }
         .badge-dak { background-color: #3182ce; }
         .badge-apbd { background-color: #e53e3e; }
-        .grand-total {
-            font-weight: bold;
-            background-color: #e2e8f0 !important;
-            font-size: 9px;
-        }
-        .footer {
-            margin-top: 20px;
-            text-align: right;
-            font-size: 9px;
-        }
-        .signature-box {
-            display: inline-block;
-            text-align: center;
-            min-width: 180px;
-            margin-top: 30px;
-        }
-        .signature-line {
-            border-top: 1px solid #333;
-            margin-top: 40px;
-            padding-top: 3px;
-        }
-        .watermark {
-            position: fixed;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%) rotate(-45deg);
-            font-size: 70px;
-            color: rgba(26, 54, 93, 0.04);
-            z-index: -1;
-            font-weight: bold;
-        }
+        .grand-total { font-weight: bold; background-color: #e2e8f0 !important; font-size: 9px; }
+        .footer { margin-top: 20px; text-align: right; font-size: 9px; }
+        .signature-box { display: inline-block; text-align: center; min-width: 180px; margin-top: 30px; }
+        .signature-line { border-top: 1px solid #333; margin-top: 40px; padding-top: 3px; }
+        .watermark { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%) rotate(-45deg); font-size: 70px; color: rgba(26, 54, 93, 0.04); z-index: -1; font-weight: bold; }
     </style>
 </head>
 <body>
@@ -186,9 +133,42 @@ if($download_pdf) {
     </div>
     
     <div class="stats-box">
-        <strong>Total Data:</strong> ' . number_format($total_records) . ' jenis aset | 
-        <strong>Total Nilai:</strong> ' . formatRupiah($total_nilai) . ' | 
-        <strong>Filter:</strong> ' . ($search ? '"' . $search . '"' : 'Semua') . '
+        <strong>📊 RINGKASAN DATA INVENTARIS</strong>
+        <div class="stats-grid">
+            <div class="stats-row">
+                <div class="stats-cell">
+                    <div class="label">Total Unit</div>
+                    <div class="value">' . number_format($total_unit) . '</div>
+                </div>
+                <div class="stats-cell">
+                    <div class="label">Total Jenis</div>
+                    <div class="value">' . number_format($total_record) . '</div>
+                </div>
+                <div class="stats-cell">
+                    <div class="label">Total Nilai</div>
+                    <div class="value" style="font-size: 11px;">' . formatRupiah($total_nilai) . '</div>
+                </div>
+                <div class="stats-cell">
+                    <div class="label">Rata-rata/Unit</div>
+                    <div class="value" style="font-size: 11px;">' . formatRupiah($rata_rata_nilai) . '</div>
+                </div>
+                <div class="stats-cell">
+                    <div class="label">Sumber Aktif</div>
+                    <div class="value">' . $sumber_aktif . '/5</div>
+                </div>
+            </div>
+        </div>
+        <div style="margin-top: 8px; font-size: 8px;">
+            <strong>Breakdown per Sumber:</strong> 
+            Pemerintah: ' . number_format($total_pemerintah) . ' unit (' . $persen_pemerintah . '%) | 
+            Sekolah: ' . number_format($total_sekolah) . ' unit (' . $persen_sekolah . '%) | 
+            BOS: ' . number_format($total_bos) . ' unit (' . $persen_bos . '%) | 
+            DAK: ' . number_format($total_dak) . ' unit (' . $persen_dak . '%) | 
+            APBD: ' . number_format($total_apbd) . ' unit (' . $persen_apbd . '%)
+        </div>
+        <div style="margin-top: 5px;">
+            <strong>Filter:</strong> ' . ($search ? '"' . $search . '"' : 'Semua data') . '
+        </div>
     </div>
     
     <table>
@@ -271,12 +251,10 @@ if($download_pdf) {
 </body>
 </html>';
     
-    // Load HTML ke Dompdf
     $dompdf->loadHtml($html);
     $dompdf->setPaper('A4', 'landscape');
     $dompdf->render();
     
-    // Download PDF
     $filename = "Laporan_Inventaris_SDN_Curug01_" . date("Y-m-d") . ($search ? "_" . preg_replace('/[^a-zA-Z0-9]/', '_', $search) : "") . ".pdf";
     $dompdf->stream($filename, array("Attachment" => true));
     exit;
@@ -309,12 +287,8 @@ if($download) {
             darkMode: 'class',
             theme: {
                 extend: {
-                    colors: {
-                        primary: { DEFAULT: '#1a365d', dark: '#0f2744', light: '#2c5282' }
-                    },
-                    fontFamily: {
-                        sans: ['Segoe UI', 'Tahoma', 'Geneva', 'Verdana', 'sans-serif']
-                    },
+                    colors: { primary: { DEFAULT: '#1a365d', dark: '#0f2744', light: '#2c5282' } },
+                    fontFamily: { sans: ['Segoe UI', 'Tahoma', 'Geneva', 'Verdana', 'sans-serif'] },
                     animation: {
                         'fade-in': 'fadeIn 0.5s ease-in-out',
                         'slide-up': 'slideUp 0.3s ease-out',
@@ -337,16 +311,15 @@ if($download) {
         ::-webkit-scrollbar-track { background: #f1f1f1; }
         ::-webkit-scrollbar-thumb { background: #1a365d; border-radius: 4px; }
         .dark ::-webkit-scrollbar-track { background: #2d3748; }
-        
         * { transition: background-color 0.3s ease, color 0.2s ease, border-color 0.3s ease; }
         
         .stagger-item { animation: slideUp 0.5s ease-out backwards; }
-        .stagger-item:nth-child(1) { animation-delay: 0.1s; }
-        .stagger-item:nth-child(2) { animation-delay: 0.2s; }
-        .stagger-item:nth-child(3) { animation-delay: 0.3s; }
-        .stagger-item:nth-child(4) { animation-delay: 0.4s; }
+        .stagger-item:nth-child(1) { animation-delay: 0.05s; }
+        .stagger-item:nth-child(2) { animation-delay: 0.1s; }
+        .stagger-item:nth-child(3) { animation-delay: 0.15s; }
+        .stagger-item:nth-child(4) { animation-delay: 0.2s; }
+        .stagger-item:nth-child(5) { animation-delay: 0.25s; }
         
-        /* Excel-like table styling for preview */
         .excel-table {
             border-collapse: collapse;
             width: 100%;
@@ -373,23 +346,12 @@ if($download) {
             vertical-align: middle;
             font-size: 12px;
         }
-        .dark .excel-table tbody td {
-            border-color: #4a5568;
-        }
-        .excel-table tbody tr:nth-child(even) {
-            background-color: #f7fafc;
-        }
-        .dark .excel-table tbody tr:nth-child(even) {
-            background-color: rgba(45, 55, 72, 0.5);
-        }
-        .excel-table tbody tr:hover {
-            background-color: #edf2f7 !important;
-        }
-        .dark .excel-table tbody tr:hover {
-            background-color: rgba(74, 85, 104, 0.5) !important;
-        }
+        .dark .excel-table tbody td { border-color: #4a5568; }
+        .excel-table tbody tr:nth-child(even) { background-color: #f7fafc; }
+        .dark .excel-table tbody tr:nth-child(even) { background-color: rgba(45, 55, 72, 0.5); }
+        .excel-table tbody tr:hover { background-color: #edf2f7 !important; }
+        .dark .excel-table tbody tr:hover { background-color: rgba(74, 85, 104, 0.5) !important; }
         
-        /* Excel badges */
         .excel-badge {
             display: inline-block;
             padding: 3px 8px;
@@ -404,7 +366,6 @@ if($download) {
         .excel-badge-dak { background-color: #3182ce; }
         .excel-badge-apbd { background-color: #e53e3e; }
         
-        /* Grand total row */
         .grand-total-row {
             background: linear-gradient(135deg, #e2e8f0 0%, #cbd5e0 100%) !important;
             font-weight: 700;
@@ -413,7 +374,6 @@ if($download) {
             background: linear-gradient(135deg, #2d3748 0%, #4a5568 100%) !important;
         }
         
-        /* Excel header preview */
         .excel-doc-header {
             background: linear-gradient(135deg, #1a365d 0%, #2c5282 100%);
             color: white;
@@ -422,7 +382,6 @@ if($download) {
             border-radius: 8px 8px 0 0;
         }
         
-        /* Download button glow */
         .download-btn {
             position: relative;
             overflow: hidden;
@@ -437,9 +396,7 @@ if($download) {
             background: linear-gradient(90deg, transparent, rgba(255,255,255,0.3), transparent);
             transition: left 0.5s;
         }
-        .download-btn:hover::before {
-            left: 100%;
-        }
+        .download-btn:hover::before { left: 100%; }
     </style>
 </head>
 
@@ -447,25 +404,13 @@ if($download) {
 
 <div class="flex min-h-screen" x-data="exportApp()">
     
-    <!-- Mobile Overlay -->
-    <div x-show="sidebarOpen" 
-         x-transition:enter="transition-opacity ease-linear duration-300"
-         x-transition:enter-start="opacity-0"
-         x-transition:enter-end="opacity-100"
-         x-transition:leave="transition-opacity ease-linear duration-300"
-         x-transition:leave-start="opacity-100"
-         x-transition:leave-end="opacity-0"
-         @click="sidebarOpen = false"
-         class="fixed inset-0 bg-black/50 z-40 lg:hidden"
-         style="display: none;"></div>
-    
-    <!-- Sidebar -->
+    <div x-show="sidebarOpen" x-transition @click="sidebarOpen = false"
+         class="fixed inset-0 bg-black/50 z-40 lg:hidden" style="display: none;"></div>
+
     <?php include 'sidebar.php'; ?>
     
-    <!-- Main Content -->
     <main class="flex-1 flex flex-col min-w-0 overflow-x-hidden">
         
-        <!-- Top Bar -->
         <header class="bg-white dark:bg-gray-800 shadow-sm px-4 lg:px-8 py-4 flex items-center justify-between sticky top-0 z-30">
             <div class="flex items-center gap-4">
                 <button @click="sidebarOpen = !sidebarOpen" class="lg:hidden p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700">
@@ -497,10 +442,9 @@ if($download) {
             </div>
         </header>
         
-        <!-- Content Area -->
         <div class="flex-1 p-4 lg:p-8 space-y-6 animate-fade-in">
             
-            <!-- ✅ Hero Download Section - DUAL FORMAT (Excel & PDF) -->
+            <!-- Hero Download Section -->
             <div class="bg-gradient-to-br from-primary via-primary-light to-primary rounded-2xl shadow-xl p-6 lg:p-8 text-white relative overflow-hidden">
                 <div class="absolute top-0 right-0 w-64 h-64 bg-white/5 rounded-full -translate-y-32 translate-x-32"></div>
                 <div class="absolute bottom-0 left-0 w-48 h-48 bg-white/5 rounded-full translate-y-24 -translate-x-24"></div>
@@ -521,8 +465,12 @@ if($download) {
                     
                     <div class="flex flex-wrap gap-3 mt-4 mb-6">
                         <div class="flex items-center gap-2 px-3 py-1.5 bg-white/15 backdrop-blur rounded-lg text-xs">
+                            <i class="fas fa-cubes"></i>
+                            <span><strong><?= number_format($total_unit) ?></strong> unit</span>
+                        </div>
+                        <div class="flex items-center gap-2 px-3 py-1.5 bg-white/15 backdrop-blur rounded-lg text-xs">
                             <i class="fas fa-database"></i>
-                            <span><strong><?= number_format($total_records) ?></strong> data</span>
+                            <span><strong><?= number_format($total_record) ?></strong> jenis</span>
                         </div>
                         <div class="flex items-center gap-2 px-3 py-1.5 bg-white/15 backdrop-blur rounded-lg text-xs">
                             <i class="fas fa-table-columns"></i>
@@ -534,9 +482,8 @@ if($download) {
                         </div>
                     </div>
                     
-                    <!-- ✅ DUAL DOWNLOAD BUTTONS -->
+                    <!-- DUAL DOWNLOAD BUTTONS -->
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-                        <!-- Excel Button -->
                         <button @click="confirmDownloadExcel()" 
                                 class="download-btn w-full px-6 py-4 bg-emerald-500 hover:bg-emerald-600 text-white rounded-xl shadow-lg hover:shadow-2xl transition-all flex items-center justify-center gap-3 font-bold text-base group">
                             <i class="fas fa-file-excel text-2xl group-hover:animate-bounce"></i>
@@ -546,7 +493,6 @@ if($download) {
                             </div>
                         </button>
                         
-                        <!-- PDF Button -->
                         <button @click="confirmDownloadPDF()" 
                                 class="download-btn w-full px-6 py-4 bg-red-500 hover:bg-red-600 text-white rounded-xl shadow-lg hover:shadow-2xl transition-all flex items-center justify-center gap-3 font-bold text-base group">
                             <i class="fas fa-file-pdf text-2xl group-hover:animate-bounce"></i>
@@ -559,33 +505,83 @@ if($download) {
                 </div>
             </div>
             
-            <!-- Statistics Cards -->
-            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 lg:gap-6">
+            <!-- ✅ STATISTICS CARDS - BREAKDOWN LENGKAP (5 CARDS) -->
+            <div class="grid grid-cols-2 lg:grid-cols-5 gap-4">
                 <?php 
                 $stats = [
-                    ['Total Aset', $total_aset, 'fa-boxes-stacked', 'from-blue-500 to-blue-600'],
-                    ['Aset Pemerintah', $total_pemerintah, 'fa-landmark', 'from-primary to-primary-dark'],
-                    ['Aset Sekolah', $total_sekolah, 'fa-school', 'from-amber-500 to-amber-600'],
-                    ['Total Nilai', formatRupiah($total_nilai), 'fa-coins', 'from-emerald-500 to-emerald-600'],
+                    ['Total Unit', number_format($total_unit), 'fa-cubes', 'from-blue-500 to-blue-600', $total_record . ' jenis aset'],
+                    ['Pemerintah', number_format($total_pemerintah), 'fa-landmark', 'from-primary to-primary-dark', $persen_pemerintah . '% dari total'],
+                    ['Sekolah', number_format($total_sekolah), 'fa-school', 'from-amber-500 to-amber-600', $persen_sekolah . '% dari total'],
+                    ['BOS', number_format($total_bos), 'fa-money-bill-wave', 'from-emerald-500 to-emerald-600', $persen_bos . '% dari total'],
+                    ['Total Nilai', formatRupiah($total_nilai), 'fa-coins', 'from-purple-500 to-purple-600', 'Rata-rata: ' . formatRupiah($rata_rata_nilai) . '/unit'],
                 ];
                 foreach($stats as $idx => $stat): ?>
                 <div class="stagger-item group relative bg-white dark:bg-gray-800 rounded-xl shadow-md hover:shadow-2xl transition-all duration-300 overflow-hidden border border-gray-100 dark:border-gray-700 hover:-translate-y-1">
                     <div class="absolute inset-0 bg-gradient-to-br <?= $stat[3] ?> opacity-0 group-hover:opacity-5 transition-opacity"></div>
-                    <div class="relative p-5 lg:p-6">
-                        <div class="flex items-start justify-between mb-3">
-                            <div class="p-3 rounded-lg bg-gradient-to-br <?= $stat[3] ?> text-white shadow-lg">
-                                <i class="fas <?= $stat[2] ?> text-lg"></i>
+                    <div class="relative p-4 lg:p-5">
+                        <div class="flex items-start justify-between mb-2">
+                            <div class="p-2.5 rounded-lg bg-gradient-to-br <?= $stat[3] ?> text-white shadow-lg">
+                                <i class="fas <?= $stat[2] ?> text-base"></i>
                             </div>
                         </div>
-                        <p class="text-xs uppercase tracking-wider text-gray-500 dark:text-gray-400 font-semibold mb-1"><?= $stat[0] ?></p>
-                        <h3 class="text-2xl lg:text-3xl font-bold text-gray-800 dark:text-white truncate"><?= $stat[1] ?></h3>
+                        <p class="text-[10px] uppercase tracking-wider text-gray-500 dark:text-gray-400 font-semibold mb-1"><?= $stat[0] ?></p>
+                        <h3 class="text-xl lg:text-2xl font-bold text-gray-800 dark:text-white truncate"><?= $stat[1] ?></h3>
+                        <p class="text-[10px] text-gray-400 dark:text-gray-500 mt-1"><?= $stat[4] ?></p>
                     </div>
                     <div class="h-1 bg-gradient-to-r <?= $stat[3] ?>"></div>
                 </div>
                 <?php endforeach; ?>
             </div>
             
-            <!-- ✅ Info Box - Dual Format -->
+            <!-- ✅ BREAKDOWN SUMBER PENGADAAN (Detail) -->
+            <div class="bg-white dark:bg-gray-800 rounded-xl shadow-md border border-gray-100 dark:border-gray-700 overflow-hidden">
+                <div class="p-4 border-b border-gray-200 dark:border-gray-700 bg-gradient-to-r from-primary/5 to-transparent">
+                    <div class="flex items-center gap-3">
+                        <div class="p-2 bg-primary/10 rounded-lg">
+                            <i class="fas fa-chart-pie text-primary text-lg"></i>
+                        </div>
+                        <div>
+                            <h3 class="text-base font-bold text-gray-800 dark:text-white">Breakdown Sumber Pengadaan</h3>
+                            <p class="text-xs text-gray-500 dark:text-gray-400">Distribusi unit aset berdasarkan sumber pengadaan</p>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="p-4">
+                    <div class="grid grid-cols-2 md:grid-cols-5 gap-3">
+                        <?php 
+                        $sumber_cards = [
+                            ['Pemerintah', $total_pemerintah, $persen_pemerintah, 'fa-landmark', 'from-primary to-primary-dark', 'bg-primary/10', 'text-primary'],
+                            ['Sekolah', $total_sekolah, $persen_sekolah, 'fa-school', 'from-amber-500 to-amber-600', 'bg-amber-100', 'text-amber-700'],
+                            ['BOS', $total_bos, $persen_bos, 'fa-money-bill-wave', 'from-emerald-500 to-emerald-600', 'bg-emerald-100', 'text-emerald-700'],
+                            ['DAK', $total_dak, $persen_dak, 'fa-building-columns', 'from-blue-500 to-cyan-600', 'bg-blue-100', 'text-blue-700'],
+                            ['APBD', $total_apbd, $persen_apbd, 'fa-landmark-flag', 'from-rose-500 to-pink-600', 'bg-rose-100', 'text-rose-700'],
+                        ];
+                        foreach($sumber_cards as $card): ?>
+                        <div class="relative bg-gradient-to-br <?= $card[5] ?> dark:bg-gray-700/50 rounded-lg p-3 border border-gray-200 dark:border-gray-600">
+                            <div class="flex items-center justify-between mb-2">
+                                <div class="p-1.5 bg-gradient-to-br <?= $card[4] ?> rounded text-white">
+                                    <i class="fas <?= $card[3] ?> text-xs"></i>
+                                </div>
+                                <span class="text-[10px] font-bold px-1.5 py-0.5 bg-white dark:bg-gray-800 rounded <?= $card[6] ?>">
+                                    <?= $card[2] ?>%
+                                </span>
+                            </div>
+                            <p class="text-[10px] uppercase tracking-wider text-gray-600 dark:text-gray-400 font-semibold"><?= $card[0] ?></p>
+                            <p class="text-lg font-bold text-gray-800 dark:text-white"><?= number_format($card[1]) ?></p>
+                            <p class="text-[9px] text-gray-500 dark:text-gray-400">unit aset</p>
+                            
+                            <!-- Mini Progress Bar -->
+                            <div class="mt-2 w-full bg-gray-200 dark:bg-gray-600 rounded-full h-1 overflow-hidden">
+                                <div class="h-full rounded-full bg-gradient-to-r <?= $card[4] ?>" style="width: <?= $card[2] ?>%"></div>
+                            </div>
+                        </div>
+                        <?php endforeach; ?>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Info Box -->
             <div class="bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-900/20 rounded-xl border border-blue-100 dark:border-blue-800 p-4 lg:p-5">
                 <div class="flex items-start gap-3">
                     <div class="p-2 bg-blue-500/10 rounded-lg flex-shrink-0">
@@ -610,7 +606,7 @@ if($download) {
                             </div>
                             <div class="flex items-start gap-2">
                                 <i class="fas fa-check text-blue-500 mt-0.5"></i>
-                                <span>Dilengkapi grand total & tanda tangan</span>
+                                <span>Dilengkapi ringkasan & grand total</span>
                             </div>
                         </div>
                     </div>
@@ -620,7 +616,6 @@ if($download) {
             <!-- Preview Table Card -->
             <div class="bg-white dark:bg-gray-800 rounded-xl shadow-md border border-gray-100 dark:border-gray-700 overflow-hidden">
                 
-                <!-- Card Header -->
                 <div class="p-5 lg:p-6 border-b border-gray-200 dark:border-gray-700 bg-gradient-to-r from-primary/5 to-transparent">
                     <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
                         <div class="flex items-center gap-3">
@@ -638,13 +633,11 @@ if($download) {
                             </div>
                         </div>
                         
-                        <!-- Search Form -->
                         <form method="GET" class="flex gap-2 w-full lg:w-auto">
                             <input type="hidden" name="download" value="0">
                             <div class="relative flex-1 lg:w-80">
                                 <i class="fas fa-search absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"></i>
-                                <input type="text" 
-                                       name="search" 
+                                <input type="text" name="search" 
                                        placeholder="Cari nama/spesifikasi barang..." 
                                        value="<?= htmlspecialchars($search) ?>"
                                        class="w-full pl-10 pr-4 py-2.5 bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-all text-sm">
@@ -677,7 +670,8 @@ if($download) {
                     </div>
                     <div class="mt-3 pt-3 border-t border-white/20 flex flex-wrap items-center justify-center gap-4 text-xs">
                         <span><i class="fas fa-calendar-alt mr-1"></i> Tanggal Export: <strong><?= date('d F Y') ?></strong></span>
-                        <span><i class="fas fa-database mr-1"></i> Total: <strong><?= number_format($total_records) ?> data</strong></span>
+                        <span><i class="fas fa-cubes mr-1"></i> Total: <strong><?= number_format($total_unit) ?> unit</strong></span>
+                        <span><i class="fas fa-database mr-1"></i> Jenis: <strong><?= number_format($total_record) ?></strong></span>
                         <?php if($search): ?>
                         <span><i class="fas fa-filter mr-1"></i> Filter: <strong>"<?= htmlspecialchars($search) ?>"</strong></span>
                         <?php endif; ?>
@@ -767,7 +761,7 @@ if($download) {
                     </table>
                 </div>
                 
-                <!-- ✅ Footer Info - Dual Download -->
+                <!-- Footer Info -->
                 <div class="p-4 lg:p-5 border-t border-gray-200 dark:border-gray-700 bg-gray-50/50 dark:bg-gray-900/30">
                     <div class="flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-gray-600 dark:text-gray-400">
                         <div class="flex items-center gap-4">
@@ -778,13 +772,11 @@ if($download) {
                         <div class="flex items-center gap-2">
                             <button @click="confirmDownloadExcel()" 
                                     class="px-4 py-2 bg-emerald-500 hover:bg-emerald-600 text-white rounded-lg transition-all flex items-center gap-2 text-xs font-semibold">
-                                <i class="fas fa-file-excel"></i>
-                                Excel
+                                <i class="fas fa-file-excel"></i> Excel
                             </button>
                             <button @click="confirmDownloadPDF()" 
                                     class="px-4 py-2 bg-red-500 hover:bg-red-600 text-white rounded-lg transition-all flex items-center gap-2 text-xs font-semibold">
-                                <i class="fas fa-file-pdf"></i>
-                                PDF
+                                <i class="fas fa-file-pdf"></i> PDF
                             </button>
                         </div>
                     </div>
@@ -795,7 +787,6 @@ if($download) {
     </main>
 </div>
 
-<!-- Toast Container -->
 <div id="toast-container" class="fixed top-4 right-4 z-[100] space-y-2"></div>
 
 <script>
@@ -810,19 +801,13 @@ function exportApp() {
             }, 1000);
         },
         
-        // ✅ KONFIRMASI DOWNLOAD EXCEL
         confirmDownloadExcel() {
             const totalRecords = <?= $total_records ?>;
             const estimatedSize = <?= $estimated_size_excel ?>;
             const searchFilter = '<?= addslashes($search) ?>';
             
             if (totalRecords === 0) {
-                Swal.fire({
-                    icon: 'warning',
-                    title: 'Tidak Ada Data',
-                    text: 'Tidak ada data yang bisa diexport.',
-                    confirmButtonColor: '#1a365d'
-                });
+                Swal.fire({ icon: 'warning', title: 'Tidak Ada Data', text: 'Tidak ada data yang bisa diexport.', confirmButtonColor: '#1a365d' });
                 return;
             }
             
@@ -869,19 +854,13 @@ function exportApp() {
             });
         },
         
-        // ✅ KONFIRMASI DOWNLOAD PDF
         confirmDownloadPDF() {
             const totalRecords = <?= $total_records ?>;
             const estimatedSize = <?= $estimated_size_pdf ?>;
             const searchFilter = '<?= addslashes($search) ?>';
             
             if (totalRecords === 0) {
-                Swal.fire({
-                    icon: 'warning',
-                    title: 'Tidak Ada Data',
-                    text: 'Tidak ada data yang bisa diexport.',
-                    confirmButtonColor: '#1a365d'
-                });
+                Swal.fire({ icon: 'warning', title: 'Tidak Ada Data', text: 'Tidak ada data yang bisa diexport.', confirmButtonColor: '#1a365d' });
                 return;
             }
             
@@ -904,7 +883,6 @@ function exportApp() {
                                 ${searchFilter ? `<div class="flex justify-between pt-1.5 border-t border-red-200 dark:border-red-800"><span><i class="fas fa-filter mr-2"></i> Filter</span><strong class="truncate ml-2">"${searchFilter}"</strong></div>` : ''}
                             </div>
                         </div>
-                        
                         <div class="p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-100 dark:border-blue-800">
                             <p class="text-xs text-blue-800 dark:text-blue-300">
                                 <i class="fas fa-lightbulb text-blue-500 mr-1"></i>
@@ -981,22 +959,18 @@ function exportApp() {
     };
 }
 
-// Keyboard shortcuts
 document.addEventListener('keydown', (e) => {
     const app = document.querySelector('[x-data]').__x;
     if (!app) return;
     
-    // Ctrl+E = Download Excel
     if ((e.ctrlKey || e.metaKey) && e.key === 'e') {
         e.preventDefault();
         app.$data.confirmDownloadExcel();
     }
-    // Ctrl+P = Download PDF
     if ((e.ctrlKey || e.metaKey) && e.key === 'p') {
         e.preventDefault();
         app.$data.confirmDownloadPDF();
     }
-    // Ctrl+K = Focus search
     if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
         e.preventDefault();
         const searchInput = document.querySelector('input[name="search"]');
@@ -1008,7 +982,7 @@ document.addEventListener('keydown', (e) => {
 </body>
 </html>
 <?php else: ?>
-<!-- EXCEL OUTPUT MODE - Kolom dipertahankan persis seperti aslinya -->
+<!-- EXCEL OUTPUT MODE -->
 <html xmlns:o="urn:schemas-microsoft-com:office:office"
       xmlns:x="urn:schemas-microsoft-com:office:excel"
       xmlns="http://www.w3.org/TR/REC-html40">
@@ -1046,12 +1020,21 @@ document.addEventListener('keydown', (e) => {
         .badge-dak { background-color: #3182ce; }
         .badge-apbd { background-color: #e53e3e; }
         .grand-total { font-weight: bold; background-color: #e2e8f0 !important; font-size: 12px; }
+        .summary-box { background: #f0f4f8; padding: 10px; border-left: 4px solid #1a365d; margin: 10px 0; font-size: 11px; }
     </style>
 </head>
 <body>
     <div class="excel-header">
         <h3>DATA INVENTARIS SEKOLAH - SDN CURUG 01</h3>
         <p>Tanggal Export: <?= date('d F Y') ?> <?= $search ? '| Filter: "'.$search.'"' : '' ?></p>
+    </div>
+    
+    <div class="summary-box">
+        <strong>📊 RINGKASAN:</strong> 
+        Total <strong><?= number_format($total_unit) ?> unit</strong> (<?= number_format($total_record) ?> jenis) | 
+        Total Nilai: <strong><?= formatRupiah($total_nilai) ?></strong> | 
+        Rata-rata: <strong><?= formatRupiah($rata_rata_nilai) ?>/unit</strong> |
+        Sumber Aktif: <strong><?= $sumber_aktif ?>/5</strong>
     </div>
     
     <table class="excel">

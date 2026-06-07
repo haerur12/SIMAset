@@ -31,6 +31,10 @@ $status = $status_label[$is_terlambat ? 'terlambat' : $data['status']];
 function formatTgl($tgl) {
     return $tgl ? date('d F Y', strtotime($tgl)) : '-';
 }
+
+// ✅ Hitung breakdown
+$has_breakdown_pinjam = ($data['kondisi_baik_pinjam'] + $data['kondisi_rusak_ringan_pinjam'] + $data['kondisi_rusak_berat_pinjam'] + $data['kondisi_perbaikan_pinjam']) > 0;
+$has_breakdown_kembali = ($data['kondisi_baik_kembali'] + $data['kondisi_rusak_ringan_kembali'] + $data['kondisi_rusak_berat_kembali'] + $data['kondisi_perbaikan_kembali']) > 0;
 ?>
 
 <div class="space-y-4">
@@ -108,16 +112,78 @@ function formatTgl($tgl) {
         </div>
     </div>
     
-    <!-- Kondisi -->
-    <div class="grid grid-cols-2 gap-3">
-        <div class="bg-gray-50 dark:bg-gray-700/50 rounded-lg p-3">
-            <p class="text-xs text-gray-600 dark:text-gray-400 mb-1">Kondisi Sebelum</p>
-            <p class="font-semibold text-sm"><?= $data['kondisi_sebelum'] ?: '-' ?></p>
+    <!-- ✅ BREAKDOWN KONDISI (BARU!) -->
+    <div class="bg-gradient-to-br from-purple-50 to-pink-50 dark:from-purple-900/20 dark:to-pink-900/20 rounded-lg p-4 border border-purple-200 dark:border-purple-800">
+        <p class="text-xs font-bold text-purple-700 dark:text-purple-300 mb-3 flex items-center gap-1">
+            <i class="fas fa-clipboard-list"></i> Breakdown Kondisi
+        </p>
+        
+        <!-- Kondisi Saat Dipinjam -->
+        <div class="mb-3">
+            <p class="text-[10px] text-gray-600 dark:text-gray-400 font-semibold mb-1">Saat Dipinjam:</p>
+            <?php if($has_breakdown_pinjam): ?>
+            <div class="grid grid-cols-4 gap-1">
+                <div class="p-2 bg-emerald-100 dark:bg-emerald-900/30 rounded text-center">
+                    <p class="text-[9px] text-emerald-700 dark:text-emerald-300">Baik</p>
+                    <p class="font-bold text-emerald-700 dark:text-emerald-300"><?= $data['kondisi_baik_pinjam'] ?></p>
+                </div>
+                <div class="p-2 bg-amber-100 dark:bg-amber-900/30 rounded text-center">
+                    <p class="text-[9px] text-amber-700 dark:text-amber-300">R.Ringan</p>
+                    <p class="font-bold text-amber-700 dark:text-amber-300"><?= $data['kondisi_rusak_ringan_pinjam'] ?></p>
+                </div>
+                <div class="p-2 bg-red-100 dark:bg-red-900/30 rounded text-center">
+                    <p class="text-[9px] text-red-700 dark:text-red-300">R.Berat</p>
+                    <p class="font-bold text-red-700 dark:text-red-300"><?= $data['kondisi_rusak_berat_pinjam'] ?></p>
+                </div>
+                <div class="p-2 bg-blue-100 dark:bg-blue-900/30 rounded text-center">
+                    <p class="text-[9px] text-blue-700 dark:text-blue-300">Perbaikan</p>
+                    <p class="font-bold text-blue-700 dark:text-blue-300"><?= $data['kondisi_perbaikan_pinjam'] ?></p>
+                </div>
+            </div>
+            <?php else: ?>
+            <p class="text-sm font-semibold text-gray-700 dark:text-gray-300">
+                <i class="fas fa-check-circle text-emerald-500 mr-1"></i>
+                <?= $data['kondisi_sebelum'] ?: 'Baik' ?> (semua unit)
+            </p>
+            <?php endif; ?>
         </div>
-        <div class="bg-gray-50 dark:bg-gray-700/50 rounded-lg p-3">
-            <p class="text-xs text-gray-600 dark:text-gray-400 mb-1">Kondisi Sesudah</p>
-            <p class="font-semibold text-sm"><?= $data['kondisi_sesudah'] ?: '-' ?></p>
+        
+        <!-- Kondisi Saat Dikembalikan -->
+        <?php if($has_breakdown_kembali): ?>
+        <div class="pt-3 border-t border-purple-200 dark:border-purple-800">
+            <p class="text-[10px] text-gray-600 dark:text-gray-400 font-semibold mb-1">Saat Dikembalikan:</p>
+            <div class="grid grid-cols-4 gap-1">
+                <div class="p-2 bg-emerald-100 dark:bg-emerald-900/30 rounded text-center">
+                    <p class="text-[9px] text-emerald-700 dark:text-emerald-300">Baik</p>
+                    <p class="font-bold text-emerald-700 dark:text-emerald-300"><?= $data['kondisi_baik_kembali'] ?></p>
+                </div>
+                <div class="p-2 bg-amber-100 dark:bg-amber-900/30 rounded text-center">
+                    <p class="text-[9px] text-amber-700 dark:text-amber-300">R.Ringan</p>
+                    <p class="font-bold text-amber-700 dark:text-amber-300"><?= $data['kondisi_rusak_ringan_kembali'] ?></p>
+                </div>
+                <div class="p-2 bg-red-100 dark:bg-red-900/30 rounded text-center">
+                    <p class="text-[9px] text-red-700 dark:text-red-300">R.Berat</p>
+                    <p class="font-bold text-red-700 dark:text-red-300"><?= $data['kondisi_rusak_berat_kembali'] ?></p>
+                </div>
+                <div class="p-2 bg-blue-100 dark:bg-blue-900/30 rounded text-center">
+                    <p class="text-[9px] text-blue-700 dark:text-blue-300">Perbaikan</p>
+                    <p class="font-bold text-blue-700 dark:text-blue-300"><?= $data['kondisi_perbaikan_kembali'] ?></p>
+                </div>
+            </div>
+            
+            <!-- Perbandingan -->
+            <?php 
+            $total_rusak_pinjam = $data['kondisi_rusak_ringan_pinjam'] + $data['kondisi_rusak_berat_pinjam'] + $data['kondisi_perbaikan_pinjam'];
+            $total_rusak_kembali = $data['kondisi_rusak_ringan_kembali'] + $data['kondisi_rusak_berat_kembali'] + $data['kondisi_perbaikan_kembali'];
+            if($total_rusak_kembali > $total_rusak_pinjam): 
+            ?>
+            <div class="mt-2 p-2 bg-red-100 dark:bg-red-900/30 border border-red-300 dark:border-red-700 rounded text-xs text-red-700 dark:text-red-300">
+                <i class="fas fa-exclamation-triangle mr-1"></i>
+                <strong>Terjadi Kerusakan:</strong> <?= ($total_rusak_kembali - $total_rusak_pinjam) ?> unit rusak saat dipinjam
+            </div>
+            <?php endif; ?>
         </div>
+        <?php endif; ?>
     </div>
     
     <?php if($data['keperluan']): ?>
