@@ -55,14 +55,39 @@ if(isset($_POST['tambah_peminjaman'])) {
         exit;
     }
     
-    // Cek stok tersedia
-    $stok = mysqli_query($conn, "SELECT jumlah FROM inventaris WHERE id = $inventaris_id");
-    $stok = $stok ? mysqli_fetch_assoc($stok) : ['jumlah' => 0];
-    $dipinjam_aktif = mysqli_query($conn, "SELECT COALESCE(SUM(jumlah), 0) as total FROM peminjaman_aset WHERE inventaris_id = $inventaris_id AND status IN ('dipinjam', 'terlambat')")->fetch_assoc()['total'];
-    $tersedia = $stok['jumlah'] - $dipinjam_aktif;
+    // ✅ VALIDASI: Cek kondisi aset dan stok tersedia
+    $cek_aset = mysqli_query($conn, "SELECT i.nama_barang_108, i.kondisi_aset, i.jumlah,
+        (SELECT COALESCE(SUM(jumlah), 0) FROM peminjaman_aset WHERE inventaris_id = i.id AND status IN ('dipinjam', 'terlambat')) as sedang_dipinjam
+        FROM inventaris i WHERE i.id = $inventaris_id");
     
-    if($jumlah > $tersedia) {
-        $_SESSION['flash_error'] = "Stok tidak mencukupi! Tersedia: $tersedia unit";
+    if(!$cek_aset || mysqli_num_rows($cek_aset) === 0) {
+        $_SESSION['flash_error'] = '❌ Aset tidak ditemukan!';
+        header("Location: peminjaman.php");
+        exit;
+    }
+    
+    $data_aset = mysqli_fetch_assoc($cek_aset);
+    $kondisi_aset = $data_aset['kondisi_aset'];
+    $stok_total = intval($data_aset['jumlah']);
+    $sedang_dipinjam = intval($data_aset['sedang_dipinjam']);
+    $stok_tersedia = $stok_total - $sedang_dipinjam;
+
+    // ✅ CEK KONDISI ASET - TIDAK BOLEH DIPINJAM
+    if(in_array($kondisi_aset, ['Rusak Berat', 'Dalam Perbaikan', 'Tidak Layak Pakai'])) {
+        $_SESSION['flash_error'] = "❌ <strong>{$data_aset['nama_barang_108']}</strong> tidak dapat dipinjam karena kondisi <strong>".strtoupper($kondisi_aset)."</strong>.";
+        header("Location: peminjaman.php");
+        exit;
+    }
+
+    // ✅ CEK STOK TERSEDIA
+    if($stok_tersedia <= 0) {
+        $_SESSION['flash_error'] = "❌ <strong>{$data_aset['nama_barang_108']}</strong> sedang dipinjam semua. Stok tersedia: 0 unit.";
+        header("Location: peminjaman.php");
+        exit;
+    }
+
+    if($jumlah > $stok_tersedia) {
+        $_SESSION['flash_error'] = "Stok tidak mencukupi! Tersedia: $stok_tersedia unit (dari $stok_total total - $sedang_dipinjam sedang dipinjam)";
         header("Location: peminjaman.php");
         exit;
     }
@@ -362,8 +387,21 @@ $query = "SELECT p.*, i.nama_barang_108, i.spesifikasi_nama_barang, i.jumlah as 
             p.tanggal_pinjam DESC";
 $result = mysqli_query($conn, $query);
 
+// ✅ QUERY YANG BENAR: Hitung unit yang bisa dipinjam berdasarkan kondisi terbaru
 $aset_list = mysqli_query($conn, "SELECT i.id, i.nama_barang_108, i.jumlah, i.satuan,
-    (i.jumlah - COALESCE((SELECT SUM(jumlah) FROM peminjaman_aset WHERE inventaris_id = i.id AND status IN ('dipinjam', 'terlambat')), 0)) as tersedia
+    COALESCE((
+        SELECT (
+            COALESCE(JSON_EXTRACT(k.detail_kondisi, '$.rusak_berat'), 0) + 
+            COALESCE(JSON_EXTRACT(k.detail_kondisi, '$.dalam_perbaikan'), 0)
+        )
+        FROM kondisi_aset k
+        WHERE k.inventaris_id = i.id 
+        AND k.detail_kondisi IS NOT NULL
+        ORDER BY k.created_at DESC 
+        LIMIT 1
+    ), 0) as unit_rusak,
+    COALESCE((SELECT SUM(jumlah) FROM peminjaman_aset WHERE inventaris_id = i.id AND status IN ('dipinjam', 'terlambat')), 0) as sedang_dipinjam,
+    (SELECT k.detail_kondisi FROM kondisi_aset k WHERE k.inventaris_id = i.id AND k.detail_kondisi IS NOT NULL ORDER BY k.created_at DESC LIMIT 1) as detail_kondisi_terbaru
     FROM inventaris i
     WHERE i.jumlah > 0
     ORDER BY i.nama_barang_108 ASC");
@@ -827,16 +865,57 @@ $aset_list = mysqli_query($conn, "SELECT i.id, i.nama_barang_108, i.jumlah, i.sa
                         <i class="fas fa-box text-primary"></i>
                         Pilih Aset yang Dipinjam <span class="text-red-500">*</span>
                     </label>
-                    <select name="inventaris_id" id="selectAset" required onchange="updateJumlahMax()" class="w-full px-4 py-2.5 bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg focus:outline-none focus:border-primary text-sm">
-                        <option value="">-- Pilih Aset --</option>
-                        <?php while($aset = mysqli_fetch_assoc($aset_list)): ?>
-                        <option value="<?= $aset['id'] ?>" data-stok="<?= $aset['tersedia'] ?>" data-nama="<?= htmlspecialchars($aset['nama_barang_108']) ?>">
-                            <?= htmlspecialchars($aset['nama_barang_108']) ?> (Tersedia: <?= $aset['tersedia'] ?> <?= $aset['satuan'] ?>)
-                        </option>
-                        <?php endwhile; ?>
-                    </select>
-                </div>
+                    <select name="inventaris_id" id="selectAset" required 
+                            onchange="checkKondisiAset()"
+                            class="w-full px-4 py-3 bg-gray-50 dark:bg-gray-700 border-2 border-gray-200 dark:border-gray-600 rounded-lg focus:outline-none focus:border-primary text-sm">
+        <option value="">-- Pilih Aset --</option>
+        <?php 
+        mysqli_data_seek($aset_list, 0);
+        while($aset = mysqli_fetch_assoc($aset_list)): 
+            $unit_rusak = intval($aset['unit_rusak']);
+            $sedang_dipinjam = intval($aset['sedang_dipinjam']);
+            $total_unit = intval($aset['jumlah']);
+            
+            // ✅ Hitung unit yang BISA dipinjam
+            $unit_bisa_pinjam = $total_unit - $unit_rusak;
+            $tersedia = $unit_bisa_pinjam - $sedang_dipinjam;
+            
+            // Skip jika tidak ada yang bisa dipinjam
+            if($unit_bisa_pinjam <= 0) continue;
+            
+            // Parse detail kondisi untuk tampilan
+            $detail = json_decode($aset['detail_kondisi_terbaru'] ?? '{}', true);
+            $k_baik = intval($detail['baik'] ?? 0);
+            $k_rr = intval($detail['rusak_ringan'] ?? 0);
+            $k_rb = intval($detail['rusak_berat'] ?? 0);
+            $k_perbaikan = intval($detail['dalam_perbaikan'] ?? 0);
+            
+            // Disable jika stok habis
+            $disabled = ($tersedia <= 0);
+        ?>
+        <option value="<?= $aset['id'] ?>" 
+                data-stok="<?= $tersedia ?>"
+                data-nama="<?= htmlspecialchars($aset['nama_barang_108']) ?>"
+                data-total="<?= $total_unit ?>"
+                data-baik="<?= $k_baik ?>"
+                data-rusak-ringan="<?= $k_rr ?>"
+                data-rusak-berat="<?= $k_rb ?>"
+                data-perbaikan="<?= $k_perbaikan ?>"
+                data-dipinjam="<?= $sedang_dipinjam ?>"
+                <?= $disabled ? 'disabled' : '' ?>>
+            <?= htmlspecialchars($aset['nama_barang_108']) ?> | ✅ <?= $tersedia ?> tersedia (dari <?= $unit_bisa_pinjam ?> unit baik)
+        </option>
+        <?php endwhile; ?>
+    </select>
+    
+    <!-- ✅ INFO KONDISI ASET (Dinamis & Informatif) -->
+    <div id="infoKondisiAset" class="hidden mt-3 p-4 rounded-xl border-2 text-sm"></div>
                 
+    <p class="text-[10px] text-gray-400 mt-2">
+        <i class="fas fa-info-circle mr-1"></i>
+        Hanya unit dalam kondisi <strong>Baik</strong> atau <strong>Rusak Ringan</strong> yang dapat dipinjam
+    </p>
+                </div>
                 <!-- Data Peminjam -->
                 <div class="bg-blue-50 dark:bg-blue-900/20 rounded-lg p-4 border border-blue-200 dark:border-blue-800">
                     <p class="text-xs font-bold text-blue-700 dark:text-blue-300 mb-3 flex items-center gap-1">
@@ -1318,6 +1397,123 @@ document.addEventListener('keydown', (e) => {
 document.addEventListener('DOMContentLoaded', () => {
     hitungTotalBreakdown('pinjam');
 });
+
+// ✅ FUNGSI: Tampilkan info kondisi aset yang detail & menarik
+function checkKondisiAset() {
+    const select = document.getElementById('selectAset');
+    const option = select.options[select.selectedIndex];
+    const infoDiv = document.getElementById('infoKondisiAset');
+    
+    if (!option || !option.value) {
+        infoDiv.classList.add('hidden');
+        return;
+    }
+    
+    const nama = option.getAttribute('data-nama');
+    const total = parseInt(option.getAttribute('data-total')) || 0;
+    const tersedia = parseInt(option.getAttribute('data-stok')) || 0;
+    const baik = parseInt(option.getAttribute('data-baik')) || 0;
+    const rr = parseInt(option.getAttribute('data-rusak-ringan')) || 0;
+    const rb = parseInt(option.getAttribute('data-rusak-berat')) || 0;
+    const perbaikan = parseInt(option.getAttribute('data-perbaikan')) || 0;
+    const dipinjam = parseInt(option.getAttribute('data-dipinjam')) || 0;
+    
+    // Hitung persentase
+    const persenBaik = total > 0 ? Math.round((baik / total) * 100) : 0;
+    const persenRR = total > 0 ? Math.round((rr / total) * 100) : 0;
+    const persenRB = total > 0 ? Math.round((rb / total) * 100) : 0;
+    const persenPerbaikan = total > 0 ? Math.round((perbaikan / total) * 100) : 0;
+    
+    // Tentukan status
+    let statusColor, statusIcon, statusText, borderColor;
+    if (tersedia <= 0) {
+        statusColor = 'bg-red-50 dark:bg-red-900/20';
+        borderColor = 'border-red-300 dark:border-red-700';
+        statusIcon = 'fa-times-circle text-red-500';
+        statusText = 'Tidak ada unit yang tersedia untuk dipinjam';
+    } else if (rb > 0 || perbaikan > 0) {
+        statusColor = 'bg-amber-50 dark:bg-amber-900/20';
+        borderColor = 'border-amber-300 dark:border-amber-700';
+        statusIcon = 'fa-exclamation-triangle text-amber-500';
+        statusText = 'Perhatian: Ada unit yang rusak berat/perbaikan';
+    } else {
+        statusColor = 'bg-emerald-50 dark:bg-emerald-900/20';
+        borderColor = 'border-emerald-300 dark:border-emerald-700';
+        statusIcon = 'fa-check-circle text-emerald-500';
+        statusText = 'Semua unit dalam kondisi baik';
+    }
+    
+    infoDiv.className = `mt-3 p-4 rounded-xl border-2 text-sm ${statusColor} ${borderColor}`;
+    infoDiv.innerHTML = `
+        <div class="flex items-center gap-2 mb-3">
+            <i class="fas ${statusIcon} text-lg"></i>
+            <strong class="text-base">${nama}</strong>
+        </div>
+        
+        <!-- Breakdown Kondisi -->
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-2 mb-3">
+            <div class="bg-white dark:bg-gray-700 rounded-lg p-2 text-center">
+                <div class="text-lg font-bold text-emerald-600">${baik}</div>
+                <div class="text-[10px] text-gray-500">Baik (${persenBaik}%)</div>
+            </div>
+            <div class="bg-white dark:bg-gray-700 rounded-lg p-2 text-center">
+                <div class="text-lg font-bold text-amber-600">${rr}</div>
+                <div class="text-[10px] text-gray-500">Rusak Ringan (${persenRR}%)</div>
+            </div>
+            <div class="bg-white dark:bg-gray-700 rounded-lg p-2 text-center">
+                <div class="text-lg font-bold text-red-600">${rb}</div>
+                <div class="text-[10px] text-gray-500">Rusak Berat (${persenRB}%)</div>
+            </div>
+            <div class="bg-white dark:bg-gray-700 rounded-lg p-2 text-center">
+                <div class="text-lg font-bold text-blue-600">${perbaikan}</div>
+                <div class="text-[10px] text-gray-500">Perbaikan (${persenPerbaikan}%)</div>
+            </div>
+        </div>
+        
+        <!-- Progress Bar -->
+        <div class="mb-3">
+            <div class="flex justify-between text-[10px] text-gray-500 mb-1">
+                <span>Kondisi Aset</span>
+                <span>Total: ${total} unit</span>
+            </div>
+            <div class="w-full h-3 bg-gray-200 dark:bg-gray-600 rounded-full overflow-hidden flex">
+                ${baik > 0 ? `<div class="h-full bg-emerald-500" style="width: ${persenBaik}%"></div>` : ''}
+                ${rr > 0 ? `<div class="h-full bg-amber-500" style="width: ${persenRR}%"></div>` : ''}
+                ${rb > 0 ? `<div class="h-full bg-red-500" style="width: ${persenRB}%"></div>` : ''}
+                ${perbaikan > 0 ? `<div class="h-full bg-blue-500" style="width: ${persenPerbaikan}%"></div>` : ''}
+            </div>
+        </div>
+        
+        <!-- Info Stok -->
+        <div class="flex items-center justify-between bg-white dark:bg-gray-700 rounded-lg p-2">
+            <div class="flex items-center gap-2">
+                <i class="fas fa-hand-holding text-primary"></i>
+                <span class="text-xs">Sedang dipinjam:</span>
+                <strong class="text-sm">${dipinjam} unit</strong>
+            </div>
+            <div class="flex items-center gap-2">
+                <i class="fas fa-box text-emerald-500"></i>
+                <span class="text-xs">Tersedia:</span>
+                <strong class="text-sm text-emerald-600">${tersedia} unit</strong>
+            </div>
+        </div>
+        
+        <p class="mt-2 text-xs ${tersedia > 0 ? 'text-emerald-700 dark:text-emerald-300' : 'text-red-700 dark:text-red-300'}">
+            <i class="fas ${tersedia > 0 ? 'fa-check-circle' : 'fa-times-circle'} mr-1"></i>
+            ${statusText}
+        </p>
+    `;
+    infoDiv.classList.remove('hidden');
+    
+    // Update max input jumlah
+    const jumlahInput = document.getElementById('inputJumlahPinjam');
+    if (jumlahInput) {
+        jumlahInput.max = tersedia;
+        if (parseInt(jumlahInput.value) > tersedia) {
+            jumlahInput.value = tersedia;
+        }
+    }
+}
 </script>
 
 </body>
